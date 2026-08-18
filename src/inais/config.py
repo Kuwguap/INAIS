@@ -109,6 +109,23 @@ class Settings(BaseSettings):
         return hashlib.sha256(f"wh:{self.telegram_bot_token}".encode()).hexdigest()[:32]
 
 
+class DbSettings(BaseSettings):
+    """Just the database URL.
+
+    Maintenance scripts (migrations) legitimately run without a bot token or API keys, and
+    Settings requires those. Env access still lives only in this module.
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    supabase_db_url: str = ""
+
+
 @lru_cache
 def settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
+
+
+@lru_cache
+def db_settings() -> DbSettings:
+    return DbSettings()

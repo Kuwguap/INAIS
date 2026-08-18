@@ -1,33 +1,40 @@
-# INAIS — Render Blueprint.
+# INAIS — Render Blueprint (production deploy).
 #
-# Deploy: Render dashboard → New → Blueprint → connect this repo → Apply.
-# Render then prompts for every value marked `sync: false` (the secrets). Nothing secret
-# lives in this file.
+#   Render dashboard → New → Blueprint → connect this repo → Apply.
 #
-# One more manual step after the first deploy:
-#   Settings → Secret Files → add `google_oauth_client.json` (your Google OAuth client),
-#   which mounts at /etc/secrets/google_oauth_client.json. Skip it if you don't use Gmail.
+# Render then prompts for every value marked `sync: false` (the secrets) and generates the
+# webhook secret and path itself. Nothing secret lives in this file.
 #
-# Plan note: `starter` ($7/mo) is deliberate — the free plan sleeps after 15 idle minutes,
-# which would stop Gmail polling, reminders, the morning brief and the learning loop.
+# After the first deploy, if you use Gmail:
+#   Settings → Secret Files → add `google_oauth_client.json`
+#   (it mounts at /etc/secrets/google_oauth_client.json, which GOOGLE_OAUTH_CLIENT_JSON points at)
+#
+# RENDER_EXTERNAL_URL is deliberately NOT declared here: Render injects it automatically and
+# the webhook is registered from it. Declaring it would let a typo silently break delivery.
 
 services:
   - type: web
     name: inais
     runtime: docker
-    plan: starter
+    dockerfilePath: ./Dockerfile
+    plan: starter          # $7/mo, always-on. The free plan sleeps after 15 idle minutes,
+                           # which would stop Gmail polling, reminders, briefs and learning.
+    numInstances: 1        # MUST stay 1: the APScheduler jobs run in-process, so a second
+                           # instance would double-send every reminder, brief and poll.
     healthCheckPath: /healthz
     autoDeployTrigger: commit
     envVars:
       # ---------------- core (required) ----------------
       - key: RUN_MODE
-        value: web                    # webhook server; use `local` only for laptop dev
+        value: web                    # webhook server; `local` is laptop-only long polling
       - key: TELEGRAM_BOT_TOKEN
         sync: false                   # from @BotFather
       - key: OWNER_TELEGRAM_ID
         sync: false                   # your numeric id (ask @userinfobot) — the ONLY allowed user
+      - key: PORT
+        value: "10000"                # Render routes to this port
       - key: TELEGRAM_WEBHOOK_SECRET
-        generateValue: true           # Render generates it; verified on every webhook request
+        generateValue: true           # verified on every webhook request
       - key: WEBHOOK_SECRET_PATH
         generateValue: true           # random URL path so the endpoint isn't guessable
 
@@ -47,7 +54,7 @@ services:
       - key: REFLECTION_MODEL
         value: claude-haiku-4-5       # nightly memory consolidation
       - key: EMBEDDING_MODEL
-        value: text-embedding-3-small # 1536 dims — matches the pgvector columns
+        value: text-embedding-3-small # 1536 dims — must match the pgvector columns
 
       # ---------------- voice ----------------
       - key: STT_MODEL
@@ -57,9 +64,9 @@ services:
       - key: TTS_VOICE
         value: nova
       - key: VOICE_REPLIES
-        value: "true"                 # reply to voice notes with a voice bubble too
+        value: "true"                 # also reply to voice notes with a voice bubble
 
-      # ---------------- Gmail (optional — omit to disable email features) ----------------
+      # ---------------- Gmail (optional) ----------------
       - key: GOOGLE_OAUTH_CLIENT_JSON
         value: /etc/secrets/google_oauth_client.json
       - key: GMAIL_POLL_SECONDS
@@ -79,7 +86,7 @@ services:
       - key: MORNING_BRIEF_HOUR
         value: "7"
       - key: CALENDAR_ENABLED
-        value: "false"                # true = also authorize Google Calendar (re-run auth script)
+        value: "false"                # true ⇒ re-run authorize_gmail.py for EVERY account
 
       # ---------------- study ----------------
       - key: STUDY_NUDGE_HOUR
@@ -91,9 +98,9 @@ services:
 
       # ---------------- growing brain (autonomous learning) ----------------
       - key: LEARNING_ENABLED
-        value: "false"                # flip to true to let it research topics while you're away
+        value: "false"                # true ⇒ it researches topics while you're away
       - key: AUTONOMY_INTERVAL_MINUTES
-        value: "30"                   # how often it considers running a learning cycle
+        value: "30"                   # how often it considers a learning cycle
       - key: AUTONOMY_IDLE_MINUTES
         value: "45"                   # only learns after you've been quiet this long
       - key: AUTONOMY_TOPICS_PER_CYCLE
@@ -103,11 +110,11 @@ services:
       - key: NN_ENABLED
         value: "true"                 # the trainable interest/importance network
       - key: NN_HIDDEN_DIM
-        value: "32"                   # ceiling; it stays linear until data justifies growth
+        value: "32"                   # ceiling; stays linear until data justifies growth
       - key: NN_MIN_EXAMPLES
         value: "40"                   # won't train on less signal than this
       - key: TAVILY_API_KEY
-        sync: false                   # optional; best search quality. Falls back to DuckDuckGo
+        sync: false                   # optional, best search quality (falls back to DuckDuckGo)
       - key: BRAVE_API_KEY
         sync: false                   # optional alternative
 

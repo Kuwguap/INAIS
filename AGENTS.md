@@ -63,6 +63,10 @@ ruff check src tests scripts
   call a `purpose` — the autonomy budget and `/usage` group by it.
 - Config comes only from `src/inais/config.py` (pydantic-settings, `.env`); never read
   `os.environ` elsewhere. All scheduled work uses `TIMEZONE` via `src/inais/timeutil.py`.
+  `Settings` requires the bot token and owner id; `DbSettings` (`db_settings()`) exposes only
+  the database URL, so migrations run before the bot is configured and from CI.
+- Every new setting must be declared in BOTH `render.yaml` and `.env.example` —
+  `tests/test_deploy_config.py` fails the build otherwise.
 - Tool time arguments: accept `in_minutes` alongside `*_iso` and prefer it — models are
   reliable at "in 20 minutes" and unreliable at clock arithmetic (`timeutil.parse_when`).
 - Features degrade gracefully: missing optional env (Gmail/Binance/DB/search) logs a warning
