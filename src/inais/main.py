@@ -16,7 +16,7 @@ from aiogram.types import Update
 from aiohttp import web
 
 import inais.agents  # noqa: F401  — registers agents/toolsets
-from inais import db
+from inais import controls, db
 from inais.bot import create_dispatcher
 from inais.config import settings
 from inais.integrations import binance
@@ -42,6 +42,10 @@ async def _startup(bot: Bot) -> None:
     )
     scheduler = schedules.setup(bot)
     scheduler.start()
+    await controls.load_flags()
+    if controls.is_paused():
+        scheduler.pause()
+        log.warning("INAIS is PAUSED (persisted flag) — background jobs are held. /resume to start.")
 
 
 async def _shutdown() -> None:

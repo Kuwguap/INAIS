@@ -37,6 +37,11 @@ def fmt(dt: datetime | None, with_date: bool = True) -> str:
     return local.strftime("%a %d %b, %H:%M") if with_date else local.strftime("%H:%M")
 
 
+def fmt_epoch(epoch: float) -> str:
+    """Format a time.time() value in the user's timezone."""
+    return datetime.fromtimestamp(epoch, tz()).strftime("%H:%M:%S")
+
+
 def parse_when(when_iso: str | None = None, in_minutes: int | None = None) -> datetime | None:
     """Resolve a tool-provided time to an aware UTC datetime.
 

@@ -175,7 +175,34 @@ really does compound: it knows more about your world every week.
 | `/learned` · `/curiosity` · `/learn` | what it taught itself · what's next · learn now |
 | `/brain` · `/train` | neural-network status · retrain on your signals |
 | `/usage` · `/reflect` | month-to-date AI spend · run memory consolidation now |
+| `/facts` · `/forget <id>` | browse and correct what it believes about you |
+| `/why [n]` | explain a recent answer: route, memory, tools, tokens, cost |
+| `/status` | what's running, what's pending, what's next |
+| `/pause` · `/resume` | halt / restart every background behaviour |
 | `/reset` · `/help` | fresh conversation context · overview |
+
+## Staying in control
+
+Three controls exist because an assistant that acts on its own needs an off switch, an
+inspection window, and a way to correct its beliefs.
+
+**`/pause`** halts *everything* running in the background — Gmail polling, reminders, the
+morning brief, Binance snapshots, nightly reflection, autonomous learning. Conversation keeps
+working; the point is "stop doing things behind my back", not "go mute". The flag is stored in
+Postgres, so a restart or redeploy cannot silently un-pause it, and `/status` always shows the
+current state. `/resume` starts everything again and runs anything that was missed once.
+
+**`/facts`** browses semantic memory five at a time, with 🗑 to forget a fact and ✏️ to replace
+it with a correction (`/forget <id>` does the same from the keyboard). This matters more than
+it sounds: a wrong fact is retrieved silently into every future prompt and stated with
+confidence. Deletes are soft and corrections use supersede, so the old version stays in the
+audit trail but never comes back through search.
+
+**`/why`** explains the last turn — which agent it routed to and whether a rule or the
+classifier decided, which memories and notes were retrieved, every tool call (including the
+ones that *failed*), and the exact token and cost breakdown. `/why 3` goes three turns back;
+the last 20 are kept in memory. When an answer looks wrong, this tells you whether the router,
+memory, or a tool was at fault.
 
 ## Deploying on Render (Blueprint)
 

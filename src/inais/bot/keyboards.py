@@ -42,3 +42,26 @@ def knowledge_kb(knowledge_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="👍 More like this", callback_data=f"kup:{knowledge_id}"),
         InlineKeyboardButton(text="👎 Not useful", callback_data=f"kdn:{knowledge_id}"),
     ]])
+
+
+def facts_kb(facts: list[dict], offset: int, total: int, page_size: int) -> InlineKeyboardMarkup:
+    """Per-fact delete/fix buttons plus pagination. callback_data stays well under 64 bytes."""
+    rows = [
+        [
+            InlineKeyboardButton(text=f"🗑 #{f['id']}", callback_data=f"fdel:{f['id']}:{offset}"),
+            InlineKeyboardButton(text=f"✏️ #{f['id']}", callback_data=f"fsup:{f['id']}"),
+        ]
+        for f in facts
+    ]
+    nav: list[InlineKeyboardButton] = []
+    if offset > 0:
+        nav.append(InlineKeyboardButton(
+            text="◀ Prev", callback_data=f"fpg:{max(0, offset - page_size)}"))
+    page = offset // page_size + 1
+    pages = max(1, (total + page_size - 1) // page_size)
+    nav.append(InlineKeyboardButton(text=f"{page}/{pages}", callback_data="fnop"))
+    if offset + page_size < total:
+        nav.append(InlineKeyboardButton(text="Next ▶", callback_data=f"fpg:{offset + page_size}"))
+    if nav:
+        rows.append(nav)
+    return InlineKeyboardMarkup(inline_keyboard=rows)

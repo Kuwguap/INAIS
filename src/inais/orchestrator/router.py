@@ -25,23 +25,24 @@ _STUDY_HINTS = ("exam", "quiz", "revise", "revision", "chapter", "lecture", "not
 class Route:
     agent: str
     complexity: str  # "simple" | "complex"
+    source: str = "classifier"  # rule | classifier | pinned — surfaced by /why
 
 
 def rule_route(text: str) -> Route | None:
     lower = text.lower()
     if any(h in lower for h in _FINANCE_HINTS):
-        return Route("finance", "complex")  # finance always needs tools
+        return Route("finance", "complex", "rule")  # finance always needs tools
     if any(h in lower for h in _EMAIL_HINTS):
-        return Route("email", "complex")
+        return Route("email", "complex", "rule")
     if any(h in lower for h in _PLANNER_HINTS):
-        return Route("planner", "complex")
+        return Route("planner", "complex", "rule")
     if any(h in lower for h in _STUDY_HINTS):
-        return Route("study", "complex")
+        return Route("study", "complex", "rule")
     if len(text) <= 60 and text.rstrip("!.? ").lower() in (
         "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "good morning",
         "good night", "yo", "sup",
     ):
-        return Route("study", "simple")
+        return Route("study", "simple", "rule")
     return None
 
 
@@ -50,7 +51,7 @@ async def route(text: str) -> Route:
     if r is not None:
         return r
     if not settings().openai_api_key:
-        return Route("study", "complex")
+        return Route("study", "complex", "no-classifier")
     data = await llm.openai_json(
         model=settings().triage_model,
         system=(
@@ -68,4 +69,4 @@ async def route(text: str) -> Route:
     )
     agent = data.get("agent") if data.get("agent") in AGENTS else "study"
     complexity = data.get("complexity") if data.get("complexity") in ("simple", "complex") else "complex"
-    return Route(agent, complexity)
+    return Route(agent, complexity, "classifier")

@@ -54,7 +54,7 @@ async def on_voice(message: Message) -> None:
 
         await message.answer(f"🎙 “{text}”")
         try:
-            reply = await loop.handle_text(message.bot, message.chat.id, text)
+            reply = await loop.handle_text(message.bot, message.chat.id, text, source="voice")
         except Exception:
             log.exception("brain failed on voice turn")
             reply = "Something broke while thinking about that — try again in a moment."

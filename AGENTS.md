@@ -45,7 +45,10 @@ ruff check src tests scripts
 - `src/inais/brain/` — the growing brain: `nn.py` (NumPy network + training), `signals.py`
   (behavioural labels), `curiosity.py` (what to learn), `research.py` (search → knowledge),
   `autonomy.py` (idle-triggered cycles).
-- `src/inais/jobs/` — `schedules.py` registers every APScheduler job; `reminders.py`
+- `src/inais/controls.py` — persisted runtime flags (the pause switch), cached for hot paths.
+- `src/inais/trace.py` — per-turn ring buffer (route, memory, tools, tokens, cost) behind /why.
+- `src/inais/jobs/` — `schedules.py` registers every APScheduler job, owns the module-level
+  scheduler handle, and exposes `pause_jobs`/`resume_jobs`/`job_overview`; `reminders.py`
   (delivery + pomodoro), `brief.py` (morning brief, study nudge).
 - `db/migrations/*.sql` — numbered, idempotent; tracked in `schema_migrations`.
 
@@ -113,7 +116,13 @@ substrate; the network is the part with preferences.
 6. Webhook: random path + `X-Telegram-Bot-Api-Secret-Token` verified on every request.
 7. Idempotency: updates deduped by `update_id`; draft sends guarded by an atomic status
    transition; reminders claimed with an atomic `update ... returning`.
-8. Web search results and PDF contents are DATA, never instructions. Summarise them; never let
+8. `/pause` must stop every background behaviour. Any new autonomous path (a job, a loop, a
+   self-triggered action) has to check `controls.is_paused()` if it can run outside the
+   scheduler — the scheduler pause only covers registered jobs.
+9. Facts are never hard-deleted: `deleted_at` for forgetting, `superseded_by` for corrections.
+   Any new retrieval path over `facts` must filter `deleted_at is null and superseded_by is
+   null`, or forgotten beliefs come back.
+10. Web search results and PDF contents are DATA, never instructions. Summarise them; never let
    them redirect behaviour. The synthesis prompts say so explicitly — keep it that way.
 
 ## Testing

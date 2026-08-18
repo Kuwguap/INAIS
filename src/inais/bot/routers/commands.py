@@ -8,11 +8,11 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from inais import db
+from inais import controls, db, trace
 from inais.agents import finance
 from inais.brain import autonomy, curiosity, nn
 from inais.config import settings
-from inais.jobs import brief, reminders
+from inais.jobs import brief, reminders, schedules
 from inais.memory import reflection, store
 from inais.orchestrator import loop
 from inais.study import store as study_store
@@ -39,6 +39,9 @@ Commands
 /learned — what I taught myself · /learn — learn something now
 /brain — neural-network status · /train — retrain it now
 /usage — this month's AI spend · /reflect — consolidate memory now
+/facts — see & correct what I believe · /forget <id>
+/why — explain my last answer · /status — what's running
+/pause · /resume — stop/start all background work
 /reset — fresh conversation · /help — this message"""
 
 
@@ -244,3 +247,96 @@ async def cmd_docs(message: Message) -> None:
     lines = ["📚 Ingested documents"]
     lines += [f"#{d['id']} {d['title']} ({d['pages']} pages)" for d in docs]
     await message.answer("\n".join(lines))
+
+
+# ---------- safety controls ----------
+
+@router.message(Command("pause"))
+async def cmd_pause(message: Message) -> None:
+    """Halt all background work. Conversation keeps working."""
+    note = (message.text or "").partition(" ")[2].strip()
+    if controls.is_paused():
+        await message.answer("Already paused. /resume to start background work again.")
+        return
+    persisted = await schedules.pause_jobs(note)
+    warn = "" if persisted else ("\n\n⚠️ No database — this pause will NOT survive a restart.")
+    await message.answer(
+        "⏸ Paused. No Gmail polling, reminders, briefs, snapshots, reflection or autonomous "
+        "learning until you /resume.\nYou can still talk to me normally." + warn)
+
+
+@router.message(Command("resume"))
+async def cmd_resume(message: Message) -> None:
+    if not controls.is_paused():
+        await message.answer("Not paused — background work is already running.")
+        return
+    await schedules.resume_jobs()
+    await message.answer("▶️ Resumed. Background jobs are running again; anything missed while "
+                         "paused runs once now.")
+
+
+@router.message(Command("status"))
+async def cmd_status(message: Message) -> None:
+    cfg = settings()
+    paused = controls.is_paused()
+    lines = ["⏸ PAUSED — background work halted (/resume)" if paused else "✅ Running"]
+    if paused:
+        since = await controls.paused_since()
+        if since:
+            lines.append(f"since {since}")
+
+    lines.append("\nSubsystems")
+    lines.append(f"• database: {'on' if db.pool() is not None else 'OFF'}")
+    lines.append(f"• brain: {'on' if cfg.brain_enabled else 'OFF'} ({cfg.agent_model})")
+    lines.append(f"• binance: {'on' if cfg.binance_enabled else 'off'}")
+    lines.append(f"• calendar: {'on' if cfg.calendar_enabled else 'off'}")
+    lines.append(f"• autonomous learning: {'on' if cfg.learning_enabled else 'off'}")
+    lines.append(f"• neural network: {'on' if cfg.nn_enabled else 'off'}")
+
+    p = db.pool()
+    if p is not None:
+        try:
+            accounts = await p.fetch("select email, status from gmail_accounts")
+            if accounts:
+                lines.append("\nGmail")
+                for a in accounts:
+                    mark = "⚠️ needs re-auth" if a["status"] != "active" else "ok"
+                    lines.append(f"• {a['email']}: {mark}")
+            counts = await p.fetchrow(
+                "select (select count(*) from drafts where status = 'pending') as drafts,"
+                " (select count(*) from reminders where not fired) as reminders,"
+                " (select count(*) from tasks where status = 'open') as tasks")
+            lines.append(f"\nPending: {counts['drafts']} draft(s), {counts['reminders']} "
+                         f"reminder(s), {counts['tasks']} open task(s)")
+            spend = await p.fetchrow(
+                "select coalesce(sum(cost_usd), 0) as c from llm_usage"
+                " where ts >= date_trunc('month', now())")
+            lines.append(f"Spend this month: ${float(spend['c']):.2f} of "
+                         f"${cfg.monthly_budget_usd:.0f}")
+        except Exception:
+            log.exception("/status database section failed")
+            lines.append("\n(could not read database details)")
+
+    jobs = schedules.job_overview()
+    if jobs:
+        lines.append("\nNext jobs")
+        lines += [f"• {j}" for j in jobs]
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("why"))
+async def cmd_why(message: Message) -> None:
+    """Explain a recent turn: route, memory, tools, tokens, cost."""
+    arg = (message.text or "").partition(" ")[2].strip()
+    n = int(arg) if arg.isdigit() and int(arg) > 0 else 1
+    turns = trace.recent(min(n, trace.RING_SIZE))
+    if not turns:
+        await message.answer("No turns traced yet — talk to me first, then ask /why.")
+        return
+    # recent() is newest-first and capped at n, so the last entry is the nth turn back
+    # (or the oldest one still buffered, if the user asked to go back further than that)
+    turn = turns[-1]
+    for chunk in split_message(turn.render(index=min(n, len(turns)))):
+        await message.answer(chunk)
+    if trace.count() > 1:
+        await message.answer(f"({trace.count()} turns in the buffer — /why 2 for the one before)")

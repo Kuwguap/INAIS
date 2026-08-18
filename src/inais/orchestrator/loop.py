@@ -10,7 +10,7 @@ import asyncio
 import logging
 import time
 
-from inais import llm
+from inais import llm, trace
 from inais.brain import signals
 from inais.config import settings
 from inais.memory import retrieval, store
@@ -57,39 +57,57 @@ def _build_system(agent: registry.AgentDef, memory_text: str, notes_text: str = 
     return "\n\n".join(p for p in parts if p)
 
 
-async def handle_text(bot, chat_id: int, text: str) -> str:
+async def handle_text(bot, chat_id: int, text: str, source: str = "text") -> str:
     """Main entry: route, run, persist. Returns the reply text."""
     cfg = settings()
+    turn = trace.begin(chat_id, text, source=source)
     if not cfg.brain_enabled:
+        trace.finish(error="brain not configured")
         return ("I'm alive, but my brain isn't wired up yet — set ANTHROPIC_API_KEY and "
                 "OPENAI_API_KEY in .env to enable it. (M0 echo mode)\n\nYou said: " + text)
 
-    r = await router.route(text)
-    if _session_pinned(chat_id):
-        r = router.Route(r.agent, "complex")
+    try:
+        r = await router.route(text)
+        if _session_pinned(chat_id):
+            r = router.Route(r.agent, "complex", "pinned")
 
-    agent = registry.get_agent(r.agent)
-    mem = await retrieval.gather(agent.name, text)
-    notes = swarm.render_notes(await swarm.read_notes(agent.name, limit=5))
-    # fetch history BEFORE saving the current message, or it would appear twice in the prompt
-    history = await store.recent_history(chat_id)
-    user_msg_id = await store.save_message(chat_id, "user", text)
-    if user_msg_id is not None:
-        asyncio.create_task(store.embed_message(user_msg_id, text))
-    # whatever the user raises unprompted is training signal for the interest network
-    asyncio.create_task(signals.user_message_signal(text))
+        agent = registry.get_agent(r.agent)
+        turn.agent, turn.complexity, turn.route_source = agent.name, r.complexity, r.source
 
-    if r.complexity == "simple":
-        reply = await _simple_turn(agent, mem, history, text, notes)
-        _touch_session(chat_id, pinned=False)
-    else:
-        reply = await _agent_turn(bot, chat_id, agent, mem, history, text, notes)
-        _touch_session(chat_id, pinned=True)
+        mem = await retrieval.gather(agent.name, text)
+        note_rows = await swarm.read_notes(agent.name, limit=5)
+        notes = swarm.render_notes(note_rows)
+        turn.notes_count = len(note_rows)
+        turn.memory_counts = {
+            "facts": len(mem.facts), "episodes": len(mem.episodes),
+            "knowledge": len(mem.knowledge), "rules": len(mem.preferences),
+        }
+        turn.memory_items = [*(f"fact: {f}" for f in mem.facts),
+                             *(f"learned: {k}" for k in mem.knowledge)]
+
+        # fetch history BEFORE saving the current message, or it would appear twice in the prompt
+        history = await store.recent_history(chat_id)
+        user_msg_id = await store.save_message(chat_id, "user", text)
+        if user_msg_id is not None:
+            asyncio.create_task(store.embed_message(user_msg_id, text))
+        # whatever the user raises unprompted is training signal for the interest network
+        asyncio.create_task(signals.user_message_signal(text))
+
+        if r.complexity == "simple":
+            reply = await _simple_turn(agent, mem, history, text, notes)
+            _touch_session(chat_id, pinned=False)
+        else:
+            reply = await _agent_turn(bot, chat_id, agent, mem, history, text, notes)
+            _touch_session(chat_id, pinned=True)
+    except Exception as e:
+        trace.finish(error=f"{type(e).__name__}: {e}")
+        raise
 
     reply = reply.strip() or "(no reply)"
     asst_msg_id = await store.save_message(chat_id, "assistant", reply)
     if asst_msg_id is not None:
         asyncio.create_task(store.embed_message(asst_msg_id, reply))
+    trace.finish(reply=reply)
     return reply
 
 
@@ -139,12 +157,15 @@ async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: 
             tool = registry.find_tool(agent.name, block.name)
             if tool is None:
                 output = f"Unknown tool: {block.name}"
+                trace.record_tool(block.name, ok=False, detail="unknown tool")
             else:
                 try:
                     output = await tool.handler(ctx, dict(block.input or {}))
+                    trace.record_tool(block.name, ok=True, detail=str(output)[:80])
                 except Exception as e:  # tool errors go back to the model, not the user
                     log.exception("tool %s failed", block.name)
                     output = f"Tool error: {e}"
+                    trace.record_tool(block.name, ok=False, detail=str(e)[:80])
             results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)[:8000]})
         messages.append({"role": "user", "content": results})
 

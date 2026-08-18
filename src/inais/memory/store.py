@@ -100,9 +100,52 @@ async def active_facts(limit: int = 300) -> list[dict]:
         return []
     rows = await p.fetch(
         "select id, category, statement, confidence from facts"
-        " where superseded_by is null order by id desc limit $1", limit,
+        " where superseded_by is null and deleted_at is null order by id desc limit $1", limit,
     )
     return [dict(r) for r in rows]
+
+
+async def count_facts() -> int:
+    p = db.pool()
+    if p is None:
+        return 0
+    row = await p.fetchrow(
+        "select count(*) as n from facts where superseded_by is null and deleted_at is null")
+    return int(row["n"])
+
+
+async def page_facts(offset: int = 0, limit: int = 5) -> list[dict]:
+    """One page of live facts, newest first — what /facts browses."""
+    p = db.pool()
+    if p is None:
+        return []
+    rows = await p.fetch(
+        "select id, category, statement, confidence, created_at from facts"
+        " where superseded_by is null and deleted_at is null"
+        " order by id desc offset $1 limit $2", max(0, offset), limit,
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_fact(fact_id: int) -> dict | None:
+    p = db.pool()
+    if p is None:
+        return None
+    row = await p.fetchrow(
+        "select id, category, statement, confidence, deleted_at, superseded_by"
+        " from facts where id = $1", fact_id)
+    return dict(row) if row else None
+
+
+async def forget_fact(fact_id: int) -> str | None:
+    """Soft-delete: the row stays for audit but leaves retrieval. Returns the statement."""
+    p = db.pool()
+    if p is None:
+        return None
+    row = await p.fetchrow(
+        "update facts set deleted_at = now() where id = $1 and deleted_at is null"
+        " returning statement", fact_id)
+    return row["statement"] if row else None
 
 
 # ---------- procedural ----------

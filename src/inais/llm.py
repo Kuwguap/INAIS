@@ -10,7 +10,7 @@ from functools import lru_cache
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
-from inais import db
+from inais import db, trace
 from inais.config import settings
 
 log = logging.getLogger(__name__)
@@ -50,11 +50,12 @@ async def record_usage(
     provider: str, model: str, purpose: str, input_tokens: int, output_tokens: int,
     cost_usd: float | None = None,
 ) -> None:
+    if cost_usd is None:
+        cost_usd = estimate_cost(model, input_tokens, output_tokens)
+    trace.record_llm(provider, model, purpose, input_tokens, output_tokens, cost_usd)
     p = db.pool()
     if p is None:
         return
-    if cost_usd is None:
-        cost_usd = estimate_cost(model, input_tokens, output_tokens)
     try:
         await p.execute(
             "insert into llm_usage (provider, model, purpose, input_tokens, output_tokens, cost_usd)"

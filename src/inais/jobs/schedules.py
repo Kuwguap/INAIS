@@ -6,7 +6,7 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from inais import db
+from inais import controls, db
 from inais.agents import email_agent, finance
 from inais.bot import keyboards
 from inais.brain import autonomy, curiosity, nn
@@ -16,6 +16,44 @@ from inais.jobs import brief, reminders
 from inais.memory import reflection
 
 log = logging.getLogger(__name__)
+
+# Module-level handle so /pause and /resume can reach the running scheduler.
+_scheduler: AsyncIOScheduler | None = None
+
+
+def get_scheduler() -> AsyncIOScheduler | None:
+    return _scheduler
+
+
+async def pause_jobs(note: str = "") -> bool:
+    """Stop all background work and remember it across restarts."""
+    persisted = await controls.set_paused(True, note)
+    if _scheduler is not None and _scheduler.running:
+        _scheduler.pause()
+    return persisted
+
+
+async def resume_jobs() -> bool:
+    persisted = await controls.set_paused(False)
+    if _scheduler is not None and _scheduler.running:
+        _scheduler.resume()
+    return persisted
+
+
+def job_overview(limit: int = 8) -> list[str]:
+    """Next run times, for /status."""
+    if _scheduler is None:
+        return []
+    from inais.timeutil import fmt
+
+    jobs = _scheduler.get_jobs()
+    # next_run_time is None for every job while the scheduler is paused
+    scheduled = sorted((j for j in jobs if j.next_run_time), key=lambda j: j.next_run_time)
+    rows = [f"{j.id}: {fmt(j.next_run_time)}" for j in scheduled[:limit]]
+    idle = [j.id for j in jobs if not j.next_run_time]
+    if idle:
+        rows.append(f"paused: {len(idle)} job(s)")
+    return rows
 
 
 def setup(bot) -> AsyncIOScheduler:
@@ -152,4 +190,7 @@ def setup(bot) -> AsyncIOScheduler:
                       id="learning_cycle", max_instances=1, coalesce=True)
     scheduler.add_job(curiosity_scout, "cron", hour=2, minute=30, id="curiosity_scout")
     scheduler.add_job(train_networks, "cron", hour=3, minute=30, id="train_networks")
+
+    global _scheduler
+    _scheduler = scheduler
     return scheduler

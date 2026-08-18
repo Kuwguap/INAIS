@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from inais import db
+from inais import controls, db
 from inais.brain import curiosity, research
 from inais.config import settings
 from inais.orchestrator import swarm
@@ -60,6 +60,8 @@ async def minutes_since_user() -> float | None:
 
 async def should_run() -> tuple[bool, str]:
     cfg = settings()
+    if controls.is_paused():
+        return False, "INAIS is paused (/resume to re-enable background work)"
     if not cfg.learning_enabled:
         return False, "learning disabled (set LEARNING_ENABLED=true)"
     if not cfg.brain_enabled or db.pool() is None:
@@ -81,6 +83,8 @@ async def run_cycle(bot, force: bool = False) -> str:
         if not ok:
             log.debug("autonomy skipped: %s", why)
             return f"Skipped: {why}"
+    elif controls.is_paused():
+        return "Skipped: INAIS is paused — /resume first."
     elif not cfg.brain_enabled or db.pool() is None:
         return "Skipped: needs API keys and a database."
 

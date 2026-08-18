@@ -18,7 +18,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 
-from inais import db, llm
+from inais import db, llm, trace
 from inais.config import settings
 from inais.orchestrator import registry
 from inais.timeutil import prompt_now
@@ -110,12 +110,15 @@ async def run_subagent(bot, chat_id: int, spec: SubTask, model: str | None = Non
             tool = registry.find_tool(agent.name, block.name, for_subagent=True)
             if tool is None:
                 output = f"Unknown or restricted tool: {block.name}"
+                trace.record_tool(f"{agent.name}/{block.name}", ok=False, detail="restricted")
             else:
                 try:
                     output = await tool.handler(ctx, dict(block.input or {}))
+                    trace.record_tool(f"{agent.name}/{block.name}", ok=True)
                 except Exception as e:
                     log.exception("sub-agent tool %s failed", block.name)
                     output = f"Tool error: {e}"
+                    trace.record_tool(f"{agent.name}/{block.name}", ok=False, detail=str(e)[:80])
             results.append({"type": "tool_result", "tool_use_id": block.id,
                             "content": str(output)[:6000]})
         messages.append({"role": "user", "content": results})
