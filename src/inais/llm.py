@@ -74,11 +74,12 @@ async def anthropic_message(
     if tools:
         kwargs["tools"] = tools
     resp = await anthropic_client().messages.create(**kwargs)
-    await record_usage(
-        "anthropic", model, purpose,
-        resp.usage.input_tokens + getattr(resp.usage, "cache_creation_input_tokens", 0) or resp.usage.input_tokens,
-        resp.usage.output_tokens,
+    input_tokens = (
+        (resp.usage.input_tokens or 0)
+        + (getattr(resp.usage, "cache_creation_input_tokens", 0) or 0)
+        + (getattr(resp.usage, "cache_read_input_tokens", 0) or 0)
     )
+    await record_usage("anthropic", model, purpose, input_tokens, resp.usage.output_tokens)
     return resp
 
 

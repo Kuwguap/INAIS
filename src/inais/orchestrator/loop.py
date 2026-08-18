@@ -58,17 +58,17 @@ async def handle_text(bot, chat_id: int, text: str) -> str:
         return ("I'm alive, but my brain isn't wired up yet — set ANTHROPIC_API_KEY and "
                 "OPENAI_API_KEY in .env to enable it. (M0 echo mode)\n\nYou said: " + text)
 
-    user_msg_id = await store.save_message(chat_id, "user", text)
-    if user_msg_id is not None:
-        asyncio.create_task(store.embed_message(user_msg_id, text))
-
     r = await router.route(text)
     if _session_pinned(chat_id):
         r = router.Route(r.agent, "complex")
 
     agent = registry.get_agent(r.agent)
     mem = await retrieval.gather(agent.name, text)
+    # fetch history BEFORE saving the current message, or it would appear twice in the prompt
     history = await store.recent_history(chat_id)
+    user_msg_id = await store.save_message(chat_id, "user", text)
+    if user_msg_id is not None:
+        asyncio.create_task(store.embed_message(user_msg_id, text))
 
     if r.complexity == "simple":
         reply = await _simple_turn(agent, mem, history, text)
