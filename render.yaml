@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: inais
+    runtime: docker
+    plan: starter          # $7/mo, always-on — free tier sleeps and breaks polling jobs
+    healthCheckPath: /healthz
+    envVars:
+      - key: RUN_MODE
+        value: web
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: OWNER_TELEGRAM_ID
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPABASE_DB_URL
+        sync: false
+      - key: BINANCE_API_KEY
+        sync: false
+      - key: BINANCE_API_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_JSON
+        value: /etc/secrets/google_oauth_client.json
+      - key: TIMEZONE
+        value: UTC
+    # Add google_oauth_client.json as a Secret File in the Render dashboard
+    # (Settings → Secret Files) — it mounts at /etc/secrets/google_oauth_client.json.

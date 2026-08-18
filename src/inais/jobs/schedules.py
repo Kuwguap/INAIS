@@ -1,0 +1,88 @@
+"""All periodic work, in-process (APScheduler) — no external cron needed."""
+
+from __future__ import annotations
+
+import logging
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from inais import db
+from inais.agents import email_agent, finance
+from inais.config import settings
+from inais.integrations import binance, gmail
+from inais.memory import reflection
+
+log = logging.getLogger(__name__)
+
+
+def setup(bot) -> AsyncIOScheduler:
+    cfg = settings()
+    scheduler = AsyncIOScheduler(timezone=cfg.timezone)
+
+    async def gmail_poll() -> None:
+        if db.pool() is not None:
+            await email_agent.poll_all(bot)
+
+    async def binance_snapshot() -> None:
+        try:
+            total = await binance.take_snapshot()
+            if total is not None:
+                log.info("binance snapshot: total ≈ $%.2f", total)
+        except Exception:
+            log.exception("binance snapshot failed")
+
+    async def daily_summary() -> None:
+        try:
+            text = await finance.build_daily_summary()
+            if text:
+                await bot.send_message(cfg.owner_telegram_id, text)
+        except Exception:
+            log.exception("daily summary failed")
+
+    async def nightly_reflection() -> None:
+        try:
+            await reflection.run_reflection()
+        except Exception:
+            log.exception("nightly reflection failed")
+
+    async def budget_check() -> None:
+        p = db.pool()
+        if p is None:
+            return
+        row = await p.fetchrow(
+            "select coalesce(sum(cost_usd), 0) as total from llm_usage"
+            " where ts >= date_trunc('month', now())",
+        )
+        total = float(row["total"])
+        if total > cfg.monthly_budget_usd:
+            await bot.send_message(
+                cfg.owner_telegram_id,
+                f"🚨 AI spend this month is ${total:.2f} — over your ${cfg.monthly_budget_usd:.0f} "
+                f"budget. Check /usage.",
+            )
+
+    async def token_health() -> None:
+        """Weekly: exercise each Gmail refresh token so failures surface proactively."""
+        for account in await gmail.list_accounts():
+            try:
+                await gmail.current_history_id(account["refresh_token"])
+            except gmail.GmailAuthError:
+                await gmail.mark_needs_reauth(account["email"])
+                await bot.send_message(
+                    cfg.owner_telegram_id,
+                    f"⚠️ Weekly check: Gmail token for {account['email']} is dead. Re-run:\n"
+                    f"python scripts/authorize_gmail.py {account['email']}",
+                )
+            except Exception:
+                log.exception("token health check failed for %s", account["email"])
+
+    scheduler.add_job(gmail_poll, "interval", seconds=cfg.gmail_poll_seconds,
+                      id="gmail_poll", max_instances=1, coalesce=True)
+    scheduler.add_job(binance_snapshot, "interval", hours=1, id="binance_snapshot",
+                      max_instances=1, coalesce=True)
+    scheduler.add_job(daily_summary, "cron", hour=cfg.daily_summary_hour, minute=0,
+                      id="daily_summary")
+    scheduler.add_job(nightly_reflection, "cron", hour=3, minute=0, id="nightly_reflection")
+    scheduler.add_job(budget_check, "cron", hour=9, minute=5, id="budget_check")
+    scheduler.add_job(token_health, "cron", day_of_week="sun", hour=8, minute=0, id="token_health")
+    return scheduler

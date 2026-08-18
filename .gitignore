@@ -1,0 +1,16 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+google_oauth_client.json
+token_*.json
+*.oga
+*.ogg
+*.mp3
+.DS_Store
