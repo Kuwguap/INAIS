@@ -65,3 +65,65 @@ def facts_kb(facts: list[dict], offset: int, total: int, page_size: int) -> Inli
     if nav:
         rows.append(nav)
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def application_kb(app_id: int, deadline: bool = False) -> InlineKeyboardMarkup:
+    """Shown when triage detects an application. Correcting a false positive must be one tap."""
+    rows = [[
+        InlineKeyboardButton(text="✏️ Change stage", callback_data=f"appmenu:{app_id}"),
+        InlineKeyboardButton(text="🗑 Not an application", callback_data=f"appdel:{app_id}"),
+    ]]
+    if deadline:
+        rows.insert(0, [InlineKeyboardButton(
+            text="📅 Add deadline task", callback_data=f"apptask:{app_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def application_status_kb(app_id: int) -> InlineKeyboardMarkup:
+    from inais.agents.applications import APPLICATION_STATUSES, STATUS_ICONS
+
+    buttons = [
+        InlineKeyboardButton(text=f"{STATUS_ICONS[s]} {s.title()}",
+                             callback_data=f"appst:{app_id}:{s}")
+        for s in APPLICATION_STATUSES
+    ]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton(text="◀ Back", callback_data="appsback")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def apps_list_kb(apps: list[dict], include_closed: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=f"✏️ #{a['id']} {a['org'][:24]}",
+                              callback_data=f"appmenu:{a['id']}")]
+        for a in apps[:8]
+    ]
+    rows.append([InlineKeyboardButton(
+        text="📂 Show active only" if include_closed else "📁 Include closed",
+        callback_data=f"appsall:{0 if include_closed else 1}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def expense_kb(expense_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🏷 Category", callback_data=f"expcat:{expense_id}"),
+        InlineKeyboardButton(text="🗑 Not an expense", callback_data=f"expdel:{expense_id}"),
+    ]])
+
+
+def expense_category_kb(expense_id: int) -> InlineKeyboardMarkup:
+    from inais.agents.expenses import EXPENSE_CATEGORIES
+
+    buttons = [
+        InlineKeyboardButton(text=c.title(), callback_data=f"expset:{expense_id}:{c}")
+        for c in EXPENSE_CATEGORIES
+    ]
+    rows = [buttons[i:i + 3] for i in range(0, len(buttons), 3)]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def spend_kb(offset: int) -> InlineKeyboardMarkup:
+    row = [InlineKeyboardButton(text="◀ Earlier", callback_data=f"spend:{offset + 1}")]
+    if offset > 0:
+        row.append(InlineKeyboardButton(text="Later ▶", callback_data=f"spend:{offset - 1}"))
+    return InlineKeyboardMarkup(inline_keyboard=[row])

@@ -88,9 +88,17 @@ register_agent(AgentDef(
 
 
 async def build_daily_summary() -> str | None:
-    """Composed by the scheduler each morning; None when Binance is off or empty."""
+    """Composed by the scheduler each morning: portfolio plus what the user has spent.
+
+    Returns None only when there is nothing at all to report — money going out is worth
+    seeing even for someone who never connected Binance.
+    """
+    from inais.agents import expenses  # late import: expenses registers tools at import time
+
+    spend_line = await expenses.month_total_line()
     if not settings().binance_enabled:
-        return None
+        return f"☀️ Daily summary\n{spend_line}" if spend_line else None
+
     pf = await binance.portfolio()
     now_total, old_total = await binance.total_change_24h()
     delta = ""
@@ -99,6 +107,7 @@ async def build_daily_summary() -> str | None:
         arrow = "📈" if pct >= 0 else "📉"
         delta = f" {arrow} {pct:+.2f}% vs yesterday"
     top = ", ".join(f"{a['asset']} {_fmt_usd(a['usd'])}" for a in pf["assets"][:5] if a["usd"])
-    return (f"☀️ Daily portfolio summary\n"
-            f"Total ≈ {_fmt_usd(pf['total_usdt'])}{delta}\n"
-            f"Top holdings: {top or '—'}")
+    summary = (f"☀️ Daily portfolio summary\n"
+               f"Total ≈ {_fmt_usd(pf['total_usdt'])}{delta}\n"
+               f"Top holdings: {top or '—'}")
+    return f"{summary}\n\n{spend_line}" if spend_line else summary

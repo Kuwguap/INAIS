@@ -109,6 +109,15 @@ function* and steers behaviour (what to research, which mail interrupts them). I
 generate language, and single-user data cannot train a language model. RAG memory is the
 substrate; the network is the part with preferences.
 
+## Gmail triage
+
+`email_agent.classify()` makes ONE structured LLM call per email returning importance,
+category and any application/expense extraction. Do not add a second classifier pass for a
+new email-derived feature — extend `TRIAGE_SYSTEM` and `normalise_verdict` instead, and add
+keywords to `_TRACKABLE_RE` so candidates survive the cheap early-exits (receipts and
+application mail are rarely flagged IMPORTANT by Gmail, so without that they never reach the
+model). `normalise_verdict` is a pure function and is where validation belongs.
+
 ## Security invariants (do not weaken)
 
 1. Owner-only: middleware drops every update not from `OWNER_TELEGRAM_ID`.

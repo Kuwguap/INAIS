@@ -16,6 +16,9 @@ A single-user assistant that lives in **Telegram** (text + voice) with a hybrid
   explain an error from a screenshot
 - 🐙 **GitHub** — read-only watch for PRs awaiting your review, issue mentions, and red CI
 - 🤝 **contacts** — who you met, where, when you last spoke, and when to follow up
+- 📋 **applications** — job/scholarship pipeline built from your inbox: confirmations,
+  interview invites, assessments and rejections move each row along by themselves
+- 💳 **expenses** — receipts and payment mail become a categorised monthly spend view
 - 🧠 **memory + a growing brain** — pgvector long-term memory consolidated nightly (including
   your writing style, learned from how you edit its drafts), plus an optional autonomous
   learning loop and a small **trainable neural network** that learns what you pay attention to
@@ -149,6 +152,30 @@ current state on demand.
 to follow up in a week"* and it stores the person, links a searchable fact, and surfaces the
 follow-up in your morning brief when it comes due. `/contacts` lists them.
 
+### Applications and expenses (from your inbox)
+
+Both are built by the **same triage call** that already reads your mail — one structured
+classification per email, not one per feature — so they cost nothing extra beyond the emails
+they actually match.
+
+**Applications.** When a confirmation, assessment link, interview invite or rejection arrives,
+INAIS creates or advances a row and messages you with buttons: **✏️ Change stage**,
+**🗑 Not an application**, and **📅 Add deadline task** when the mail states a deadline (that
+one creates a real task in `/tasks`). `/apps` shows the pipeline grouped by stage, with a
+button per application to correct it. The pipeline only ever moves *forward* — a stray
+"thanks for applying" footer in a later email can't undo a recorded interview — while
+rejections and withdrawals always win, because they end the story.
+
+**Expenses.** Receipts and payment confirmations become categorised rows. Each notification
+carries **🏷 Category** and **🗑 Not an expense**, because a misread amount silently distorts
+your whole month. `/spend` shows the month by category with the biggest merchants, and pages
+backwards through earlier months. Your spending also appears in the daily summary next to the
+Binance portfolio — and that summary now sends even if you never connected Binance.
+
+Two things worth knowing about the extraction: amounts are parsed defensively (`$1,234.56`,
+`1 234,56` and bare numbers all work; anything unparseable is dropped rather than guessed),
+and one email can only ever create one expense — a redelivered poll can't double-count.
+
 ### M10 — Parallel sub-agents
 Ask something spanning several specialists — *"check my inbox, my portfolio, and plan my
 afternoon"* — and the orchestrator fans out to sub-agents concurrently instead of working
@@ -194,6 +221,8 @@ really does compound: it knows more about your world every week.
 | `/finance` | portfolio snapshot with 24h change |
 | `/github` | reviews, mentions and failing builds waiting on you |
 | `/contacts` | people, last contact, and due follow-ups |
+| `/apps` · `/apps all` | application pipeline by stage (tap to change a stage) |
+| `/spend` | this month by category (tap to page back through months) |
 | `/learned` · `/curiosity` · `/learn` | what it taught itself · what's next · learn now |
 | `/brain` · `/train` | neural-network status · retrain on your signals |
 | `/usage` · `/reflect` | month-to-date AI spend · run memory consolidation now |
@@ -314,6 +343,8 @@ took over.
 | — | Vision (file) | send a PNG screenshot as a *file*, not a photo | it is read, not answered with "I can only ingest PDFs" |
 | — | GitHub | `/github` | reviews/mentions/red builds with links; a new one arrives unprompted within `GITHUB_POLL_MINUTES` |
 | — | Contacts | "I met Ama from the robotics lab, follow up in 1 day" → `/contacts` | listed with the follow-up; it appears in tomorrow's morning brief |
+| — | Applications | forward yourself a "thanks for applying" email | a tracked application appears with stage buttons; `/apps` lists it |
+| — | Expenses | forward a receipt | it appears with category buttons; `/spend` totals it |
 | 10 | Sub-agents | "check my inbox, my portfolio, and plan my afternoon" | one merged answer; `/why` lists sub-agent tool calls |
 | 11 | Autonomy | set `LEARNING_ENABLED=true`, leave it alone for an hour | `/learned` shows new cited notes; `/curiosity` shows the queue |
 | 11 | Network | tap Draft-reply/Ignore on a few emails, then `/train` | `/brain` reports a version with CV AUC and example counts |

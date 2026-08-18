@@ -96,7 +96,7 @@ services:
       - key: GITHUB_TOKEN
         sync: false                   # fine-grained PAT with READ access only
       - key: GITHUB_REPOS
-        value: ""                     # comma-separated owner/repo to watch for CI failures
+        value: Kuwguap/INAIS          # comma-separated owner/repo to watch for CI failures
       - key: GITHUB_POLL_MINUTES
         value: "15"
 
@@ -125,6 +125,10 @@ services:
         sync: false                   # optional, best search quality (falls back to DuckDuckGo)
       - key: BRAVE_API_KEY
         sync: false                   # optional alternative
+
+      # ---------------- tracking (applications + expenses from email) ----------------
+      - key: DEFAULT_CURRENCY
+        value: USD                    # fallback when a receipt doesn't state a currency
 
       # ---------------- ops ----------------
       - key: TIMEZONE

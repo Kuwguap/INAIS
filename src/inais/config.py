@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     brave_api_key: str = ""
 
+    # --- Tracking (applications + expenses from email) ---
+    default_currency: str = "USD"   # display currency for /spend totals
+
     # --- Ops ---
     timezone: str = "UTC"
     monthly_budget_usd: float = 50.0
