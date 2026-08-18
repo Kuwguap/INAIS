@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass, field
 
 from inais import db, llm
+from inais.config import settings
 from inais.memory import store
 
 log = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ class MemoryContext:
     preferences: list[str] = field(default_factory=list)
     facts: list[str] = field(default_factory=list)
     episodes: list[str] = field(default_factory=list)
+    knowledge: list[str] = field(default_factory=list)
 
     def render(self) -> str:
         parts: list[str] = []
@@ -50,6 +52,12 @@ async def gather(agent_name: str, query: str, k: int = 6) -> MemoryContext:
             "select content from hybrid_search_messages($1, $2::vector, $3)", query, qvec, k,
         )
         ctx.episodes = [r["content"][:400] for r in msg_rows]
+        if settings().learning_enabled:
+            know_rows = await p.fetch(
+                "select topic, summary from hybrid_search_knowledge($1, $2::vector, $3)",
+                query, qvec, min(k, 4),
+            )
+            ctx.knowledge = [f"{r['topic']}: {r['summary'][:300]}" for r in know_rows]
     except Exception:
         log.exception("memory retrieval failed — continuing without it")
     return ctx

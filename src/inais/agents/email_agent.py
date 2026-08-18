@@ -10,6 +10,7 @@ import logging
 import re
 
 from inais import db, llm
+from inais.brain import nn
 from inais.config import settings
 from inais.integrations import gmail
 from inais.orchestrator.registry import AgentDef, Tool, ToolContext, register_agent
@@ -46,12 +47,26 @@ def prefilter(meta: dict) -> bool:
 
 
 async def classify(meta: dict) -> dict:
-    """LLM triage on headers + snippet (~250 tokens). Gmail IMPORTANT label short-circuits."""
+    """Triage: Binance alerts → the learned network → Gmail's label → LLM, cheapest path first.
+
+    The email_importance network is trained on the user's own Draft-reply/Ignore taps, so it
+    can override Gmail in both directions once it beats chance on holdout data.
+    """
     if is_binance_security(meta):
         return {"importance": "high", "reason": "Binance security alert", "needs_reply": False}
-    if "IMPORTANT" not in meta["labels"]:
+
+    text = f"From: {meta['from']}\nSubject: {meta['subject']}\n{meta['snippet']}"
+    learned = await nn.score("email_importance", text)
+    gmail_important = "IMPORTANT" in meta["labels"]
+
+    if learned is not None and learned < 0.15:
+        # the user has repeatedly ignored mail like this — don't even pay for a triage call
+        return {"importance": "low", "reason": f"learned as noise ({learned:.2f})",
+                "needs_reply": False}
+    if not gmail_important and (learned is None or learned < 0.6):
         # Gmail's own priority ML says not important — cheap default, no LLM call
         return {"importance": "low", "reason": "not marked important by Gmail", "needs_reply": False}
+
     data = await llm.openai_json(
         model=settings().triage_model,
         system=(
@@ -66,6 +81,12 @@ async def classify(meta: dict) -> dict:
     )
     if data.get("importance") not in ("high", "normal", "low"):
         data["importance"] = "normal"
+    if learned is not None:
+        data["reason"] = f"{data.get('reason', '')} [net {learned:.2f}]".strip()
+        if learned > 0.8 and data["importance"] == "low":
+            data["importance"] = "normal"  # the user's own behaviour outvotes the triage model
+        elif learned < 0.3 and data["importance"] == "high":
+            data["importance"] = "normal"
     return data
 
 

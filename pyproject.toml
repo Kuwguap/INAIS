@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "inais"
 version = "0.1.0"
-description = "INAIS — personal AI assistant: Telegram + Gmail + Binance + memory + voice"
+description = "INAIS — personal AI assistant: Telegram, Gmail, Binance, planner, study, autonomous learning brain"
 requires-python = ">=3.12"
 dependencies = [
     "aiogram>=3.15",
@@ -20,6 +20,9 @@ dependencies = [
     "google-auth>=2.30",
     "google-auth-oauthlib>=1.2",
     "python-binance>=1.0.19",
+    "pymupdf>=1.24",
+    "numpy>=1.26",
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

@@ -47,6 +47,29 @@ class Settings(BaseSettings):
     binance_symbols: str = "BTCUSDT,ETHUSDT"
     daily_summary_hour: int = 8
 
+    # --- Planner (M8) ---
+    morning_brief_hour: int = 7
+    calendar_enabled: bool = False
+
+    # --- Study (M9) ---
+    study_nudge_hour: int = 17
+
+    # --- Sub-agent swarm (M10) ---
+    subagent_model: str = "claude-haiku-4-5"
+    max_parallel_subagents: int = 4
+
+    # --- Growing brain (M11) ---
+    learning_enabled: bool = False
+    autonomy_interval_minutes: int = 30
+    autonomy_idle_minutes: int = 45
+    autonomy_topics_per_cycle: int = 2
+    autonomy_daily_budget_usd: float = 1.0
+    nn_enabled: bool = True
+    nn_hidden_dim: int = 32
+    nn_min_examples: int = 40
+    tavily_api_key: str = ""
+    brave_api_key: str = ""
+
     # --- Ops ---
     timezone: str = "UTC"
     monthly_budget_usd: float = 50.0
@@ -64,6 +87,15 @@ class Settings(BaseSettings):
     @property
     def binance_enabled(self) -> bool:
         return bool(self.binance_api_key and self.binance_api_secret)
+
+    @property
+    def search_provider(self) -> str:
+        """Which web-search backend the learning loop uses."""
+        if self.tavily_api_key:
+            return "tavily"
+        if self.brave_api_key:
+            return "brave"
+        return "duckduckgo"  # no key needed, best-effort HTML scrape
 
     @property
     def symbols(self) -> list[str]:

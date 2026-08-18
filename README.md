@@ -1,20 +1,35 @@
 # INAIS — your personal AI assistant
 
 A single-user assistant that lives in **Telegram** (text + voice) with a hybrid
-**Claude + OpenAI** brain, an **email agent** (watches your Gmail accounts, flags important
-mail, drafts replies **you approve before anything is sent**), a **finance agent**
-(read-only Binance portfolio tracking + daily summaries), a **study/dev helper**, and
-**long-term memory** on Supabase pgvector that consolidates what it learns about you every
-night — including your writing style, learned from how you edit its drafts.
+**Claude + OpenAI** brain and a team of specialists that run **in parallel**:
+
+- 📧 **email** — watches your Gmail accounts, flags important mail, drafts replies
+  **you approve before anything is sent**
+- 💰 **finance** — read-only Binance portfolio tracking + daily summaries
+- 🗓 **planner** — tasks, deadlines, reminders, a pomodoro timer, a morning brief, and
+  optional Google Calendar
+- 📚 **study** — send it a lecture PDF, then ask questions from it, get generated quizzes with
+  spaced repetition, have it read material aloud, or **voice-note a recap and get back
+  corrections, gaps and honest praise**
+- 🧠 **memory + a growing brain** — pgvector long-term memory consolidated nightly (including
+  your writing style, learned from how you edit its drafts), plus an optional autonomous
+  learning loop and a small **trainable neural network** that learns what you pay attention to
 
 ```
-you (Telegram) ⇄ aiogram bot ⇄ router (cheap OpenAI) ⇄ Claude Sonnet tool loop
-                                   agents: email · finance · study  + memory tools
-                     APScheduler: gmail poll · binance snapshot · daily summary · nightly reflection
-                     Supabase Postgres + pgvector: messages · facts · preferences · profile · drafts
+you (Telegram) ⇄ aiogram bot ⇄ router (cheap OpenAI) ⇄ Claude Sonnet orchestrator
+                                    │
+                                    ├─ delegate → sub-agents run CONCURRENTLY
+                                    │    email · finance · planner · study
+                                    │    ↕ agent_notes blackboard (they hand work to each other)
+                                    │
+                     APScheduler: gmail poll · binance snapshot · reminders (30s) · morning brief
+                                  study nudge · nightly reflection · learning cycles · nn training
+                     Supabase + pgvector: messages · facts · preferences · profile · drafts
+                                  tasks · reminders · documents · exams · quizzes · knowledge · nn_models
 ```
 
-Running cost: **$7/mo Render Starter + roughly $25–45/mo API** at ~200 messages/day.
+Running cost: **$7/mo Render Starter + roughly $25–45/mo API** at ~200 messages/day
+(the autonomous learning loop has its own hard daily cap, default $1/day).
 
 ---
 
@@ -90,30 +105,110 @@ from your draft edits, and refreshes its profile of you.
 (or `/reflect`), the next draft matches your style. `/usage` shows month-to-date spend; you get
 an alarm if it passes `MONTHLY_BUDGET_USD`.
 
+### M8 — Planner
+Run `python scripts/apply_migrations.py` again and it's live.
+**Verify:** *"remind me in 2 minutes to stretch"* → the ping arrives. *"add task: finish lab
+report by Friday, school"* → `/tasks` lists it. `/pomodoro 1 revision` → break ping after a
+minute, then `/stats`. A brief lands each morning at `MORNING_BRIEF_HOUR`.
+
+Optional Google Calendar: set `CALENDAR_ENABLED=true`, then **re-run
+`python scripts/authorize_gmail.py you@gmail.com` for each account** — Google issues tokens per
+scope set, so the calendar scope needs fresh consent.
+
+### M9 — Study
+**Verify:** send a lecture PDF in Telegram → *"📚 Ingested … N pages, M chunks"*. Ask something
+only that PDF answers → it answers and names the document. *"quiz me on <topic>"* then `/quiz` →
+multiple-choice buttons; right answers double the review interval, wrong ones halve it.
+*"read chapter 2 to me"* → sequential voice messages. Tell it about an exam (*"my physics exam
+is on 4 September, topics are …"*) → a spaced plan appears in `/plan`, with a nudge each evening
+at `STUDY_NUDGE_HOUR`.
+
+**Brain-dump review** — the feature worth knowing about: run `/review`, then voice-note
+everything you remember. It transcribes you, pulls the matching passages from *your own*
+material, and replies with **Covered / Corrections / Gaps / Well done**. It also fires
+automatically if you voice-note a recap right after a study-labelled pomodoro
+(`/pomodoro 25 physics revision`).
+
+### M10 — Parallel sub-agents
+Ask something spanning several specialists — *"check my inbox, my portfolio, and plan my
+afternoon"* — and the orchestrator fans out to sub-agents concurrently instead of working
+through them one at a time. They also leave each other notes (`agent_notes`), so a finding from
+the finance agent reaches the email agent without you relaying it.
+
+### M11 — The growing brain (optional, off by default)
+Set `LEARNING_ENABLED=true` to switch on autonomous learning.
+
+**What it does.** When you've been quiet for `AUTONOMY_IDLE_MINUTES`, it picks a topic it decided
+it wants to understand (drawn from your conversations, exam topics and open tasks), searches the
+web, and writes itself a cited note. Ask `/learned` — or just *"what did you learn while I was
+away?"* — and it tells you. `/curiosity` shows what it wants to learn next; `/learn` forces a
+cycle now. Set `TAVILY_API_KEY` for good search results (it falls back to Brave, then
+DuckDuckGo).
+
+**The neural network.** `/brain` shows its status, `/train` retrains it. This is a real network —
+NumPy, real backpropagation, Adam, weights versioned in Postgres — trained on what you actually
+do: which mail you tap **✍️ Draft reply** on versus **🔕 Ignore**, which self-taught notes you
+👍 or 👎, which topics you raise yourself. It then steers behaviour: which mail is worth
+interrupting you for (and which can skip the triage call entirely, saving money), and what it
+researches next. The architecture **grows with your data** — it starts as a single linear unit
+and only adds hidden units once you've produced enough examples to justify them, picking the
+winner by cross-validation. Until it genuinely beats chance on held-out data, it steers nothing.
+
+**Being straight with you about it:** this network learns *what you pay attention to*. It does
+not generate language and it never will — one person's data cannot train a language model, and
+anyone claiming otherwise is selling something. The intelligence in your conversations comes from
+Claude and OpenAI. What grows here is the assistant's model of *you*, its store of
+self-researched knowledge, and its judgement about what deserves your attention — and that part
+really does compound: it knows more about your world every week.
+
 ---
 
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `/tasks` · `/brief` | open tasks · today's brief (calendar, due tasks, reminders, focus) |
+| `/pomodoro [min] [label]` · `/pomodoro stop` · `/stats` | focus timer, streaks |
+| `/quiz [topic]` · `/plan [exam]` · `/docs` | spaced-repetition quiz · study plan · documents |
+| `/review [topic]` | brain-dump: recap out loud, get corrections and gaps |
 | `/finance` | portfolio snapshot with 24h change |
-| `/usage` | month-to-date AI spend by model |
-| `/reflect` | run memory consolidation now |
-| `/reset` | fresh conversation context |
-| `/help` | overview |
+| `/learned` · `/curiosity` · `/learn` | what it taught itself · what's next · learn now |
+| `/brain` · `/train` | neural-network status · retrain on your signals |
+| `/usage` · `/reflect` | month-to-date AI spend · run memory consolidation now |
+| `/reset` · `/help` | fresh conversation context · overview |
+
+## Deploying on Render (Blueprint)
+
+The repo ships a complete [`render.yaml`](render.yaml), so there's no service to configure by hand:
+
+1. Push this repo to GitHub.
+2. Render → **New → Blueprint** → pick the repo → **Apply**.
+3. Render prompts for the secrets (the `sync: false` entries) and generates the webhook secret
+   and URL path itself. Everything else has a sensible default in the file.
+4. If you use Gmail: **Settings → Secret Files** → add `google_oauth_client.json`
+   (it mounts at `/etc/secrets/google_oauth_client.json`).
+5. Set `TIMEZONE` to yours — every schedule (reminders, briefs, nudges, nightly jobs) follows it.
+
+The plan is `starter` ($7/mo) on purpose: the free plan sleeps after 15 idle minutes, which would
+silently stop Gmail polling, reminders, the morning brief and the learning loop.
 
 ## Security model
 
 - **Owner-only**: every update from anyone but you is dropped.
 - **Nothing sends without you**: the AI can only create drafts; the send button is yours.
 - **Binance is read-only**; withdrawal permissions are never enabled.
-- Gmail scope is `gmail.modify` (no delete). Secrets live in `.env` / Render, never in git.
+- Gmail scope is `gmail.modify` (no delete); Calendar adds only `calendar.events`.
+- **Web pages and PDFs are data, not orders**: the research and ingestion prompts summarise
+  sources and never let them redirect the assistant's behaviour.
+- **The autonomous loop has a hard daily spend cap** (`AUTONOMY_DAILY_BUDGET_USD`) and only runs
+  while you're idle. It messages you unprompted only through the morning brief.
+- Secrets live in `.env` / Render Blueprint secrets, never in git.
 
 ## Development
 
 ```bash
-pytest                 # unit tests
-ruff check src tests   # lint
+pytest                         # unit tests (no network, no database)
+ruff check src tests scripts   # lint
 ```
 
 See [AGENTS.md](AGENTS.md) for conventions (Claude Code, Cursor and Codex read it too).

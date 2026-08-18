@@ -10,11 +10,15 @@ from inais.config import settings
 
 log = logging.getLogger(__name__)
 
-AGENTS = ("finance", "email", "study")
+AGENTS = ("finance", "email", "study", "planner")
 
 _FINANCE_HINTS = ("binance", "portfolio", "crypto", "btc", "eth", "usdt", "trade", "deposit",
                   "withdraw", "balance", "pnl", "invest")
 _EMAIL_HINTS = ("email", "mail", "inbox", "gmail", "reply to", "draft", "unread")
+_PLANNER_HINTS = ("task", "todo", "to-do", "remind", "reminder", "deadline", "schedule",
+                  "calendar", "agenda", "plan my day", "plan my week", "due ")
+_STUDY_HINTS = ("exam", "quiz", "revise", "revision", "chapter", "lecture", "notes",
+                "study", "read to me", "flashcard", "syllabus")
 
 
 @dataclass
@@ -29,6 +33,10 @@ def rule_route(text: str) -> Route | None:
         return Route("finance", "complex")  # finance always needs tools
     if any(h in lower for h in _EMAIL_HINTS):
         return Route("email", "complex")
+    if any(h in lower for h in _PLANNER_HINTS):
+        return Route("planner", "complex")
+    if any(h in lower for h in _STUDY_HINTS):
+        return Route("study", "complex")
     if len(text) <= 60 and text.rstrip("!.? ").lower() in (
         "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "good morning",
         "good night", "yo", "sup",

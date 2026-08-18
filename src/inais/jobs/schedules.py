@@ -8,8 +8,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from inais import db
 from inais.agents import email_agent, finance
+from inais.bot import keyboards
+from inais.brain import autonomy, curiosity, nn
 from inais.config import settings
 from inais.integrations import binance, gmail
+from inais.jobs import brief, reminders
 from inais.memory import reflection
 
 log = logging.getLogger(__name__)
@@ -76,6 +79,57 @@ def setup(bot) -> AsyncIOScheduler:
             except Exception:
                 log.exception("token health check failed for %s", account["email"])
 
+    # ---------- planner (M8) ----------
+
+    async def reminder_tick() -> None:
+        try:
+            await reminders.deliver_due(bot)
+            await reminders.finish_due(bot)
+        except Exception:
+            log.exception("reminder tick failed")
+
+    async def morning_brief() -> None:
+        try:
+            text = await brief.build_morning_brief()
+            if text:
+                await bot.send_message(cfg.owner_telegram_id, text)
+        except Exception:
+            log.exception("morning brief failed")
+
+    # ---------- study (M9) ----------
+
+    async def study_nudge() -> None:
+        try:
+            nudge = await brief.build_study_nudge()
+            if nudge is None:
+                return
+            text, plan_id = nudge
+            await bot.send_message(cfg.owner_telegram_id, text,
+                                   reply_markup=keyboards.study_plan_kb(plan_id))
+        except Exception:
+            log.exception("study nudge failed")
+
+    # ---------- growing brain (M11) ----------
+
+    async def learning_cycle() -> None:
+        await autonomy.scheduled_cycle(bot)
+
+    async def curiosity_scout() -> None:
+        if not cfg.learning_enabled:
+            return
+        try:
+            await curiosity.scout()
+        except Exception:
+            log.exception("curiosity scouting failed")
+
+    async def train_networks() -> None:
+        if not cfg.nn_enabled or db.pool() is None:
+            return
+        try:
+            log.info("nightly training: %s", await nn.train_all())
+        except Exception:
+            log.exception("nightly network training failed")
+
     scheduler.add_job(gmail_poll, "interval", seconds=cfg.gmail_poll_seconds,
                       id="gmail_poll", max_instances=1, coalesce=True)
     scheduler.add_job(binance_snapshot, "interval", hours=1, id="binance_snapshot",
@@ -85,4 +139,17 @@ def setup(bot) -> AsyncIOScheduler:
     scheduler.add_job(nightly_reflection, "cron", hour=3, minute=0, id="nightly_reflection")
     scheduler.add_job(budget_check, "cron", hour=9, minute=5, id="budget_check")
     scheduler.add_job(token_health, "cron", day_of_week="sun", hour=8, minute=0, id="token_health")
+
+    scheduler.add_job(reminder_tick, "interval", seconds=30, id="reminder_tick",
+                      max_instances=1, coalesce=True)
+    scheduler.add_job(morning_brief, "cron", hour=cfg.morning_brief_hour, minute=0,
+                      id="morning_brief")
+    scheduler.add_job(study_nudge, "cron", hour=cfg.study_nudge_hour, minute=0, id="study_nudge")
+
+    # The brain trains after reflection (which may add facts the scout reads) and learns
+    # whenever the user has been quiet for a while.
+    scheduler.add_job(learning_cycle, "interval", minutes=cfg.autonomy_interval_minutes,
+                      id="learning_cycle", max_instances=1, coalesce=True)
+    scheduler.add_job(curiosity_scout, "cron", hour=2, minute=30, id="curiosity_scout")
+    scheduler.add_job(train_networks, "cron", hour=3, minute=30, id="train_networks")
     return scheduler

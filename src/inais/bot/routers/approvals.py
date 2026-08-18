@@ -7,6 +7,7 @@ double-tap or redelivered callback can never send twice.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from aiogram import F, Router
@@ -16,6 +17,7 @@ from aiogram.types import CallbackQuery, Message
 
 from inais import db
 from inais.bot import keyboards
+from inais.brain import signals
 from inais.bot.routers.chat import typing_indicator
 from inais.integrations import gmail
 from inais.orchestrator import loop
@@ -159,6 +161,8 @@ async def on_edit_body(message: Message, state: FSMContext) -> None:
 async def on_draft_reply(cb: CallbackQuery) -> None:
     event_id = _cb_id(cb)
     await cb.answer("Drafting…")
+    # acting on a mail is the strongest "this mattered" label we get
+    asyncio.create_task(signals.record_email_signal_from_event(event_id, important=True))
     if cb.message is None:
         return
     chat_id = cb.message.chat.id
@@ -176,6 +180,7 @@ async def on_draft_reply(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("ign:"))
 async def on_ignore(cb: CallbackQuery) -> None:
+    asyncio.create_task(signals.record_email_signal_from_event(_cb_id(cb), important=False))
     await cb.answer("Ignored")
     if cb.message:
         await cb.message.edit_reply_markup(reply_markup=None)

@@ -27,6 +27,8 @@ class Tool:
     description: str
     input_schema: dict
     handler: Callable[[ToolContext, dict], Awaitable[str]]
+    # orchestrator_only tools are hidden from sub-agents (delegate would otherwise recurse)
+    orchestrator_only: bool = False
 
     def to_anthropic(self) -> dict:
         return {"name": self.name, "description": self.description, "input_schema": self.input_schema}
@@ -59,12 +61,15 @@ def get_agent(name: str) -> AgentDef:
     return _AGENTS.get(name) or _AGENTS["study"]
 
 
-def tools_for(name: str) -> list[Tool]:
-    return [*_COMMON_TOOLS, *get_agent(name).tools]
+def tools_for(name: str, for_subagent: bool = False) -> list[Tool]:
+    tools = [*_COMMON_TOOLS, *get_agent(name).tools]
+    if for_subagent:
+        tools = [t for t in tools if not t.orchestrator_only]
+    return tools
 
 
-def find_tool(agent: str, tool_name: str) -> Tool | None:
-    for t in tools_for(agent):
+def find_tool(agent: str, tool_name: str, for_subagent: bool = False) -> Tool | None:
+    for t in tools_for(agent, for_subagent=for_subagent):
         if t.name == tool_name:
             return t
     return None
@@ -124,4 +129,158 @@ register_common_tool(Tool(
         "required": ["query"],
     },
     handler=_search_memory,
+))
+
+
+# ---------- swarm tools: delegation + the inter-agent blackboard ----------
+
+async def _delegate(ctx: ToolContext, args: dict) -> str:
+    """Run several specialists concurrently and return their merged reports."""
+    from inais.orchestrator import swarm  # late import: swarm imports this module
+
+    raw = args.get("tasks") or []
+    specs: list[swarm.SubTask] = []
+    for item in raw[:4]:  # hard cap: this is a personal assistant, not a research farm
+        if not isinstance(item, dict):
+            continue
+        agent = str(item.get("agent", "")).strip()
+        task = str(item.get("task", "")).strip()
+        if agent in _AGENTS and task:
+            specs.append(swarm.SubTask(agent=agent, task=task))
+    if not specs:
+        return ("No valid tasks. Provide tasks: [{agent, task}] where agent is one of: "
+                + ", ".join(sorted(_AGENTS)))
+    if len(specs) == 1:
+        return ("Only one task given — handle it yourself with your own tools instead of "
+                "delegating.")
+    run = await swarm.run_parallel(ctx.bot, ctx.chat_id, specs)
+    return run.render()
+
+
+async def _post_note(ctx: ToolContext, args: dict) -> str:
+    from inais.orchestrator import swarm
+
+    note_id = await swarm.post_note(
+        from_agent=ctx.agent,
+        topic=str(args.get("topic", "")).strip(),
+        content=str(args.get("content", "")).strip(),
+        to_agent=str(args.get("to_agent", "all")).strip() or "all",
+    )
+    return f"Note #{note_id} posted." if note_id else "Note not saved (no database or empty)."
+
+
+async def _read_notes(ctx: ToolContext, args: dict) -> str:
+    from inais.orchestrator import swarm
+
+    notes = await swarm.read_notes(
+        ctx.agent, limit=int(args.get("limit", 8) or 8),
+        topic=str(args.get("topic", "")).strip() or None,
+        consume=bool(args.get("consume", False)),
+    )
+    return swarm.render_notes(notes) or "No notes waiting for you."
+
+
+register_common_tool(Tool(
+    name="delegate",
+    description="Run 2-4 specialist sub-agents IN PARALLEL and get their reports back. Use this "
+                "when a request has independent parts that different specialists own (e.g. "
+                "'summarise my inbox, check my portfolio and plan my afternoon'). Do not use it "
+                "for a single task you can do yourself.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "tasks": {
+                "type": "array",
+                "description": "2-4 independent tasks.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "agent": {"type": "string",
+                                  "enum": ["email", "finance", "planner", "study"]},
+                        "task": {"type": "string",
+                                 "description": "Self-contained instruction; the sub-agent "
+                                                "cannot see this conversation."},
+                    },
+                    "required": ["agent", "task"],
+                },
+            },
+        },
+        "required": ["tasks"],
+    },
+    handler=_delegate,
+    orchestrator_only=True,
+))
+
+register_common_tool(Tool(
+    name="post_note",
+    description="Leave a note for another agent (or all agents) on the shared blackboard. Use "
+                "for findings that matter beyond this turn — e.g. the finance agent spotting a "
+                "large withdrawal the email agent should watch for.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string"},
+            "content": {"type": "string"},
+            "to_agent": {"type": "string",
+                         "enum": ["all", "email", "finance", "planner", "study"]},
+        },
+        "required": ["topic", "content"],
+    },
+    handler=_post_note,
+))
+
+register_common_tool(Tool(
+    name="read_notes",
+    description="Read notes other agents left for you on the blackboard.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string"},
+            "limit": {"type": "integer"},
+            "consume": {"type": "boolean", "description": "Mark them handled."},
+        },
+    },
+    handler=_read_notes,
+))
+
+
+# ---------- self-learned knowledge (the growing brain) ----------
+
+async def _search_knowledge(ctx: ToolContext, args: dict) -> str:
+    from inais import db, llm
+
+    p = db.pool()
+    query = str(args.get("query", "")).strip()
+    if p is None or not query:
+        return "No knowledge base available."
+    try:
+        qvec = llm.vec_literal(await llm.embed(query))
+        rows = await p.fetch(
+            "select topic, summary, detail, confidence, learned_at"
+            " from hybrid_search_knowledge($1, $2::vector, $3)",
+            query, qvec, int(args.get("k", 4) or 4),
+        )
+    except Exception:
+        log.exception("knowledge search failed")
+        return "Knowledge search failed."
+    if not rows:
+        return "Nothing in my self-learned knowledge matches that."
+    return "\n\n".join(
+        f"[{r['learned_at']:%d %b} · confidence {float(r['confidence']):.2f}] {r['topic']}\n"
+        f"{r['summary']}\n{(r['detail'] or '')[:500]}"
+        for r in rows
+    )
+
+
+register_common_tool(Tool(
+    name="search_knowledge",
+    description="Search what YOU (the assistant) researched on your own initiative while the "
+                "user was away. Use when they ask what you've learned, or when a topic you "
+                "studied autonomously is relevant. Be clear that this is your own research.",
+    input_schema={
+        "type": "object",
+        "properties": {"query": {"type": "string"}, "k": {"type": "integer"}},
+        "required": ["query"],
+    },
+    handler=_search_knowledge,
 ))

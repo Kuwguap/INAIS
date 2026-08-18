@@ -12,6 +12,7 @@ from inais.bot.routers.chat import typing_indicator
 from inais.config import settings
 from inais.integrations import stt_tts
 from inais.orchestrator import loop
+from inais.study import review
 from inais.textutil import split_message
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,19 @@ async def on_voice(message: Message) -> None:
             return
         if not text:
             await message.answer("I heard silence 🤫")
+            return
+
+        # A recap voice-noted right after a study-labelled focus block goes to the
+        # brain-dump reviewer instead of the normal chat brain.
+        try:
+            session = await review.recent_study_pomodoro()
+        except Exception:
+            log.exception("auto-review check failed")
+            session = None
+        if session is not None:
+            from inais.bot.routers.study import _deliver_review
+
+            await _deliver_review(message, text, session.get("label"))
             return
 
         await message.answer(f"🎙 “{text}”")

@@ -9,6 +9,9 @@ Prerequisite (one-time, in Google Cloud Console):
      click Advanced → "Go to <app> (unsafe)". You are the only user.
   3. Create an OAuth client (type: Desktop app) and download the JSON to the path in
      GOOGLE_OAUTH_CLIENT_JSON (default: google_oauth_client.json in the repo root — gitignored).
+
+If you set CALENDAR_ENABLED=true, this script also requests calendar.events — you must re-run
+it once per account after flipping that flag, or calendar calls will fail with an auth error.
 """
 
 from __future__ import annotations
@@ -24,7 +27,12 @@ from googleapiclient.discovery import build
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 from inais.config import settings  # noqa: E402
 
+# gmail.modify covers read/label/draft/send-draft (never delete). The calendar scope is
+# requested only when CALENDAR_ENABLED=true — adding it later means re-running this script
+# for every account, because Google issues tokens per scope set.
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+if settings().calendar_enabled:
+    SCOPES.append("https://www.googleapis.com/auth/calendar.events")
 
 
 async def store(email: str, refresh_token: str) -> None:

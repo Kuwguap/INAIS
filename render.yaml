@@ -1,31 +1,120 @@
+# INAIS — Render Blueprint.
+#
+# Deploy: Render dashboard → New → Blueprint → connect this repo → Apply.
+# Render then prompts for every value marked `sync: false` (the secrets). Nothing secret
+# lives in this file.
+#
+# One more manual step after the first deploy:
+#   Settings → Secret Files → add `google_oauth_client.json` (your Google OAuth client),
+#   which mounts at /etc/secrets/google_oauth_client.json. Skip it if you don't use Gmail.
+#
+# Plan note: `starter` ($7/mo) is deliberate — the free plan sleeps after 15 idle minutes,
+# which would stop Gmail polling, reminders, the morning brief and the learning loop.
+
 services:
   - type: web
     name: inais
     runtime: docker
-    plan: starter          # $7/mo, always-on — free tier sleeps and breaks polling jobs
+    plan: starter
     healthCheckPath: /healthz
+    autoDeployTrigger: commit
     envVars:
+      # ---------------- core (required) ----------------
       - key: RUN_MODE
-        value: web
+        value: web                    # webhook server; use `local` only for laptop dev
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
+        sync: false                   # from @BotFather
       - key: OWNER_TELEGRAM_ID
-        sync: false
+        sync: false                   # your numeric id (ask @userinfobot) — the ONLY allowed user
       - key: TELEGRAM_WEBHOOK_SECRET
-        sync: false
+        generateValue: true           # Render generates it; verified on every webhook request
+      - key: WEBHOOK_SECRET_PATH
+        generateValue: true           # random URL path so the endpoint isn't guessable
+
+      # ---------------- brain (required) ----------------
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: SUPABASE_DB_URL
-        sync: false
-      - key: BINANCE_API_KEY
-        sync: false
-      - key: BINANCE_API_SECRET
-        sync: false
+        sync: false                   # Supabase → Connect → session pooler URI (port 5432)
+      - key: AGENT_MODEL
+        value: claude-sonnet-5        # tool-heavy turns
+      - key: TRIAGE_MODEL
+        value: gpt-5-mini             # routing, email triage, cheap replies
+      - key: SUBAGENT_MODEL
+        value: claude-haiku-4-5       # parallel specialists + research synthesis
+      - key: REFLECTION_MODEL
+        value: claude-haiku-4-5       # nightly memory consolidation
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small # 1536 dims — matches the pgvector columns
+
+      # ---------------- voice ----------------
+      - key: STT_MODEL
+        value: gpt-4o-mini-transcribe
+      - key: TTS_MODEL
+        value: gpt-4o-mini-tts
+      - key: TTS_VOICE
+        value: nova
+      - key: VOICE_REPLIES
+        value: "true"                 # reply to voice notes with a voice bubble too
+
+      # ---------------- Gmail (optional — omit to disable email features) ----------------
       - key: GOOGLE_OAUTH_CLIENT_JSON
         value: /etc/secrets/google_oauth_client.json
+      - key: GMAIL_POLL_SECONDS
+        value: "60"
+
+      # ---------------- Binance (optional — READ-ONLY key only) ----------------
+      - key: BINANCE_API_KEY
+        sync: false                   # "Enable Reading" ONLY. Never enable withdrawals.
+      - key: BINANCE_API_SECRET
+        sync: false
+      - key: BINANCE_SYMBOLS
+        value: BTCUSDT,ETHUSDT        # symbols to pull trade history for
+      - key: DAILY_SUMMARY_HOUR
+        value: "8"
+
+      # ---------------- planner ----------------
+      - key: MORNING_BRIEF_HOUR
+        value: "7"
+      - key: CALENDAR_ENABLED
+        value: "false"                # true = also authorize Google Calendar (re-run auth script)
+
+      # ---------------- study ----------------
+      - key: STUDY_NUDGE_HOUR
+        value: "17"                   # evening "today's focus" ping
+
+      # ---------------- sub-agent swarm ----------------
+      - key: MAX_PARALLEL_SUBAGENTS
+        value: "4"                    # concurrency cap; 512 MB fits ~4 comfortably
+
+      # ---------------- growing brain (autonomous learning) ----------------
+      - key: LEARNING_ENABLED
+        value: "false"                # flip to true to let it research topics while you're away
+      - key: AUTONOMY_INTERVAL_MINUTES
+        value: "30"                   # how often it considers running a learning cycle
+      - key: AUTONOMY_IDLE_MINUTES
+        value: "45"                   # only learns after you've been quiet this long
+      - key: AUTONOMY_TOPICS_PER_CYCLE
+        value: "2"
+      - key: AUTONOMY_DAILY_BUDGET_USD
+        value: "1.0"                  # hard cap on self-directed spend per day
+      - key: NN_ENABLED
+        value: "true"                 # the trainable interest/importance network
+      - key: NN_HIDDEN_DIM
+        value: "32"                   # ceiling; it stays linear until data justifies growth
+      - key: NN_MIN_EXAMPLES
+        value: "40"                   # won't train on less signal than this
+      - key: TAVILY_API_KEY
+        sync: false                   # optional; best search quality. Falls back to DuckDuckGo
+      - key: BRAVE_API_KEY
+        sync: false                   # optional alternative
+
+      # ---------------- ops ----------------
       - key: TIMEZONE
-        value: UTC
-    # Add google_oauth_client.json as a Secret File in the Render dashboard
-    # (Settings → Secret Files) — it mounts at /etc/secrets/google_oauth_client.json.
+        value: UTC                    # set yours, e.g. Africa/Accra — all schedules follow it
+      - key: MONTHLY_BUDGET_USD
+        value: "50"                   # /usage alarm threshold
+      - key: LOG_LEVEL
+        value: INFO
