@@ -176,6 +176,32 @@ Two things worth knowing about the extraction: amounts are parsed defensively (`
 `1 234,56` and bare numbers all work; anything unparseable is dropped rather than guessed),
 and one email can only ever create one expense — a redelivered poll can't double-count.
 
+### Syllabus, review cards and drills
+
+**Syllabus → deadlines.** Send a syllabus PDF and, after ingestion, INAIS extracts every dated
+item a student must act on and shows the list with **✅ Add all**, a per-item **➕**, and
+**❌ Skip**. Nothing enters your planner until you tap — syllabi are full of dates that aren't
+yours (office hours, faculty deadlines, provisional weeks), and a planner quietly filled with
+wrong due dates is worse than no extraction. Dates already past are dropped automatically,
+since a syllabus often covers a term that has ended. Approved items become real tasks with
+due dates resolved in your `TIMEZONE`.
+
+**Spaced repetition, generalised.** `quiz_items` scheduling now lives in one shared curve
+(`study/spaced.py`) used by both the generated quizzes and a new `review_items` deck that
+accepts material from anywhere — a fact from conversation, a snippet from a PDF, anything you
+ask to be drilled on. One card arrives daily at `REVIEW_CARD_HOUR` (default 9) with
+**👁 Show answer**, then **✅ Got it** / **❌ Missed**: right doubles the interval (capped at 30
+days), wrong halves it. Answer one and the next due card follows immediately. `/card` pulls
+one on demand, `/deck` shows accuracy.
+
+**Interview and viva drills.** `/drill` picks the least-asked question from the bank, sends it
+as **text and as a voice message**, and waits for a spoken answer. Grading reuses the
+brain-dump shape — Covered / Corrections / Gaps / Well done — because that's what actually
+helps you rehearse. Behavioral questions are also judged on structure (situation, action,
+result); viva and technical answers are graded against *your own* material, never outside
+knowledge. Five behavioral questions ship as a starting deck; ask for
+"viva questions on <topic>" to generate more from your PDFs.
+
 ### M10 — Parallel sub-agents
 Ask something spanning several specialists — *"check my inbox, my portfolio, and plan my
 afternoon"* — and the orchestrator fans out to sub-agents concurrently instead of working
@@ -216,7 +242,9 @@ really does compound: it knows more about your world every week.
 |---|---|
 | `/tasks` · `/brief` | open tasks · today's brief (calendar, due tasks, reminders, focus) |
 | `/pomodoro [min] [label]` · `/pomodoro stop` · `/stats` | focus timer, streaks |
-| `/quiz [topic]` · `/plan [exam]` · `/docs` | spaced-repetition quiz · study plan · documents |
+| `/quiz [topic]` · `/plan [exam]` · `/docs` | multiple-choice quiz · study plan · documents |
+| `/card` · `/deck` | daily spaced-repetition review · deck stats |
+| `/drill [category]` | spoken interview/viva practice, graded out loud |
 | `/review [topic]` | brain-dump: recap out loud, get corrections and gaps |
 | `/finance` | portfolio snapshot with 24h change |
 | `/github` | reviews, mentions and failing builds waiting on you |
@@ -343,6 +371,9 @@ took over.
 | — | Vision (file) | send a PNG screenshot as a *file*, not a photo | it is read, not answered with "I can only ingest PDFs" |
 | — | GitHub | `/github` | reviews/mentions/red builds with links; a new one arrives unprompted within `GITHUB_POLL_MINUTES` |
 | — | Contacts | "I met Ama from the robotics lab, follow up in 1 day" → `/contacts` | listed with the follow-up; it appears in tomorrow's morning brief |
+| — | Syllabus | send a syllabus PDF | dated items listed with Add all / ➕ / Skip; approved ones appear in `/tasks` with correct dates |
+| — | Review cards | `/card`, answer Got it / Missed | interval changes as stated; a card arrives daily at `REVIEW_CARD_HOUR` |
+| — | Drills | `/drill`, answer by voice | question arrives as text + voice; feedback has Covered / Corrections / Gaps / Well done |
 | — | Applications | forward yourself a "thanks for applying" email | a tracked application appears with stage buttons; `/apps` lists it |
 | — | Expenses | forward a receipt | it appears with category buttons; `/spend` totals it |
 | 10 | Sub-agents | "check my inbox, my portfolio, and plan my afternoon" | one merged answer; `/why` lists sub-agent tool calls |

@@ -18,7 +18,7 @@ from inais.bot import keyboards
 from inais.bot.routers.chat import typing_indicator
 from inais.config import settings
 from inais.integrations import stt_tts
-from inais.study import ingest, quiz, review, store
+from inais.study import ingest, quiz, review, store, syllabus
 from inais.textutil import split_message
 
 log = logging.getLogger(__name__)
@@ -67,6 +67,19 @@ async def on_document(message: Message) -> None:
     await note.edit_text(
         f"📚 Ingested “{result['title']}”: {result['pages']} pages, {result['chunks']} chunks.\n"
         f"Ask me anything from it, say “quiz me on …”, or “read … to me”.")
+
+    # A syllabus usually carries dates. Offer them rather than silently filling the planner:
+    # syllabi list plenty of dates that are not the student's to action.
+    try:
+        items = syllabus.overdue_filter(
+            await syllabus.extract(result["document_id"], result["text"], result["title"]))
+    except Exception:
+        log.exception("syllabus extraction failed")
+        return
+    if items:
+        await message.answer(
+            syllabus.render(items, result["title"]),
+            reply_markup=keyboards.syllabus_kb(result["document_id"], items))
 
 
 # ---------- quizzes ----------
@@ -204,3 +217,50 @@ async def _deliver_review(message: Message, transcript: str, hint: str | None) -
                 await message.answer_voice(BufferedInputFile(ogg, filename="review.ogg"))
         except Exception:
             log.exception("review TTS failed — text already sent")
+
+
+# ---------- syllabus approval ----------
+
+@router.callback_query(F.data.startswith("sylall:"))
+async def on_syllabus_all(cb: CallbackQuery) -> None:
+    try:
+        doc_id = int((cb.data or "sylall:0").split(":", 1)[1])
+    except ValueError:
+        await cb.answer("Malformed.")
+        return
+    added = await syllabus.approve_all(doc_id)
+    await cb.answer(f"Added {len(added)} task(s)" if added else "Nothing left to add")
+    if cb.message:
+        body = "\n".join(f"• {t}" for t in added[:15])
+        await cb.message.edit_text(
+            f"✅ Added {len(added)} deadline(s) to your tasks:\n{body}\n\nSee /tasks."
+            if added else "Nothing left to add.")
+
+
+@router.callback_query(F.data.startswith("syladd:"))
+async def on_syllabus_one(cb: CallbackQuery) -> None:
+    try:
+        item_id = int((cb.data or "syladd:0").split(":", 1)[1])
+    except ValueError:
+        await cb.answer("Malformed.")
+        return
+    result = await syllabus.approve(item_id)
+    if result is None:
+        await cb.answer("Already added.")
+        return
+    _, title = result
+    await cb.answer(f"Added: {title[:50]}")
+
+
+@router.callback_query(F.data.startswith("syldis:"))
+async def on_syllabus_skip(cb: CallbackQuery) -> None:
+    try:
+        doc_id = int((cb.data or "syldis:0").split(":", 1)[1])
+    except ValueError:
+        await cb.answer("Malformed.")
+        return
+    n = await syllabus.reject_all(doc_id)
+    await cb.answer("Skipped")
+    if cb.message:
+        await cb.message.edit_text(f"❌ Skipped {n} extracted date(s). "
+                                   f"The document is still searchable.")

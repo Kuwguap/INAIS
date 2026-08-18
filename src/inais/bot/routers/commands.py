@@ -36,7 +36,9 @@ Just talk to me (text or voice notes). I can:
 Commands
 /tasks — open tasks · /brief — today's brief
 /pomodoro [min] [label] — focus timer · /pomodoro stop · /stats
-/quiz [topic] — spaced-repetition questions
+/quiz [topic] — multiple-choice questions
+/card — spaced-repetition review · /deck — deck stats
+/drill [behavioral|technical|viva|exam] — spoken practice, graded
 /review [topic] — brain-dump: recap out loud, I check it
 /finance — portfolio snapshot
 /learned — what I taught myself · /learn — learn something now

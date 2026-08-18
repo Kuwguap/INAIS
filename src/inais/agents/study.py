@@ -209,3 +209,72 @@ TOOLS.append(Tool(
     input_schema={"type": "object", "properties": {}},
     handler=_github_status,
 ))
+
+
+async def _add_review_card(ctx: ToolContext, args: dict) -> str:
+    """Let the model turn anything worth retaining into a spaced-repetition card."""
+    from inais.study import spaced
+
+    front = str(args.get("front", "")).strip()
+    back = str(args.get("back", "")).strip()
+    if not front or not back:
+        return "A card needs both a question (front) and an answer (back)."
+    card_id = await spaced.add_card(
+        front=front, back=back,
+        source_kind=str(args.get("source_kind", "conversation")),
+        topic=str(args.get("topic", "")).strip() or None,
+    )
+    if card_id is None:
+        return "That card already exists (or there's no database)."
+    return f"Card #{card_id} added — it'll come round in tomorrow's review."
+
+
+async def _generate_drills(ctx: ToolContext, args: dict) -> str:
+    from inais.study import drills
+
+    category = str(args.get("category", "behavioral")).lower()
+    topic = str(args.get("topic", "")).strip()
+    try:
+        n = int(args.get("n", 5))
+    except (TypeError, ValueError):
+        n = 5
+    exam = await store.find_exam(topic) if topic else None
+    _, message = await drills.generate(category, topic, n,
+                                       exam_id=exam["id"] if exam else None)
+    return message
+
+
+TOOLS.extend([
+    Tool(
+        name="add_review_card",
+        description="Save something for spaced repetition — a definition, formula, or fact the "
+                    "user wants to retain. They review one card a day with Got it / Missed.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "front": {"type": "string", "description": "The prompt or question."},
+                "back": {"type": "string", "description": "The answer."},
+                "topic": {"type": "string"},
+                "source_kind": {"type": "string",
+                                "enum": ["manual", "conversation", "document", "fact"]},
+            },
+            "required": ["front", "back"],
+        },
+        handler=_add_review_card,
+    ),
+    Tool(
+        name="generate_drill_questions",
+        description="Build interview or viva questions the user can practise out loud with "
+                    "/drill. Viva and technical questions are grounded in their own material.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "enum": ["behavioral", "technical", "viva"]},
+                "topic": {"type": "string", "description": "Subject or exam name."},
+                "n": {"type": "integer"},
+            },
+            "required": ["category"],
+        },
+        handler=_generate_drills,
+    ),
+])

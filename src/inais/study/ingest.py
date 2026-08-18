@@ -68,7 +68,7 @@ def chunk_text(text: str, size: int = CHUNK_CHARS, overlap: int = CHUNK_OVERLAP)
 
 
 async def ingest_pdf(data: bytes, filename: str, exam_id: int | None = None) -> dict:
-    """Store a PDF's chunks. Returns {document_id, title, pages, chunks}."""
+    """Store a PDF's chunks. Returns {document_id, title, pages, chunks, text}."""
     if len(data) > MAX_PDF_BYTES:
         raise PdfTooLarge(f"{len(data) / 1_048_576:.1f} MB")
     p = db.pool()
@@ -105,4 +105,5 @@ async def ingest_pdf(data: bytes, filename: str, exam_id: int | None = None) -> 
 
     await asyncio.gather(*(store_chunk(i, c) for i, c in enumerate(chunks)))
     log.info("ingested %s: %s pages, %s chunks", filename, pages, len(chunks))
-    return {"document_id": doc_id, "title": title, "pages": pages, "chunks": len(chunks)}
+    return {"document_id": doc_id, "title": title, "pages": pages, "chunks": len(chunks),
+            "text": text}

@@ -7,6 +7,8 @@ import logging
 from datetime import date, timedelta
 
 from inais import db, llm
+# the scheduling curve is shared with review_items so both decks behave identically
+from inais.study.spaced import next_interval
 
 log = logging.getLogger(__name__)
 
@@ -235,11 +237,7 @@ async def get_quiz_item(item_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def next_interval(current: int, correct: bool) -> int:
-    """Right answers double the interval (cap 30 days); wrong answers halve it (floor 1)."""
-    if correct:
-        return min(max(1, current) * 2, 30)
-    return max(1, max(1, current) // 2)
+# the scheduling curve is shared with review_items so both decks behave identically
 
 
 async def record_quiz_answer(item_id: int, correct: bool) -> int:

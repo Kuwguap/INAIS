@@ -153,6 +153,16 @@ def setup(bot) -> AsyncIOScheduler:
         except Exception:
             log.exception("github poll failed")
 
+    async def review_card() -> None:
+        """One card a day; the session continues from the buttons if more are due."""
+        try:
+            from inais.bot.routers.drills import send_card
+
+            if not await send_card(bot, cfg.owner_telegram_id):
+                log.debug("no review cards due today")
+        except Exception:
+            log.exception("daily review card failed")
+
     # ---------- growing brain (M11) ----------
 
     async def learning_cycle() -> None:
@@ -189,6 +199,7 @@ def setup(bot) -> AsyncIOScheduler:
     scheduler.add_job(morning_brief, "cron", hour=cfg.morning_brief_hour, minute=0,
                       id="morning_brief")
     scheduler.add_job(study_nudge, "cron", hour=cfg.study_nudge_hour, minute=0, id="study_nudge")
+    scheduler.add_job(review_card, "cron", hour=cfg.review_card_hour, minute=0, id="review_card")
     if cfg.github_enabled:
         scheduler.add_job(github_poll, "interval", minutes=cfg.github_poll_minutes,
                           id="github_poll", max_instances=1, coalesce=True)

@@ -7,7 +7,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from inais.bot.middleware import DedupeMiddleware, OwnerOnlyMiddleware
 from inais.bot.routers import (
-    approvals, chat, commands, facts, learning, study, tracking, vision, voice,
+    approvals, chat, commands, drills, facts, learning, study, tracking, vision,
+    voice,
 )
 
 
@@ -19,6 +20,7 @@ def create_dispatcher() -> Dispatcher:
     # then study (documents/quizzes), learning feedback, voice, and finally free chat.
     dp.include_router(approvals.router)
     dp.include_router(vision.router)   # before study: study's F.document catches everything
+    dp.include_router(drills.router)   # before voice: its FSM claims voice answers
     dp.include_router(study.router)
     dp.include_router(facts.router)
     dp.include_router(tracking.router)

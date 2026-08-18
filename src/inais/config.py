@@ -53,6 +53,7 @@ class Settings(BaseSettings):
 
     # --- Study (M9) ---
     study_nudge_hour: int = 17
+    review_card_hour: int = 9       # daily spaced-repetition card
 
     # --- GitHub (read-only) ---
     github_token: str = ""

@@ -127,3 +127,37 @@ def spend_kb(offset: int) -> InlineKeyboardMarkup:
     if offset > 0:
         row.append(InlineKeyboardButton(text="Later ▶", callback_data=f"spend:{offset - 1}"))
     return InlineKeyboardMarkup(inline_keyboard=[row])
+
+
+def syllabus_kb(document_id: int, items: list[dict]) -> InlineKeyboardMarkup:
+    """Approval gate for extracted syllabus dates — nothing enters the planner untapped."""
+    rows = [[
+        InlineKeyboardButton(text=f"✅ Add all ({len(items)})",
+                             callback_data=f"sylall:{document_id}"),
+        InlineKeyboardButton(text="❌ Skip", callback_data=f"syldis:{document_id}"),
+    ]]
+    rows += [
+        [InlineKeyboardButton(text=f"➕ {i['title'][:40]}", callback_data=f"syladd:{i['id']}")]
+        for i in items[:8]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def review_card_kb(card_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="👁 Show answer", callback_data=f"cardshow:{card_id}"),
+    ]])
+
+
+def review_grade_kb(card_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Got it", callback_data=f"cardok:{card_id}"),
+        InlineKeyboardButton(text="❌ Missed", callback_data=f"cardno:{card_id}"),
+    ]])
+
+
+def drill_kb(question_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⏭ Another question", callback_data="drillnext"),
+        InlineKeyboardButton(text="🛑 Stop", callback_data="drillstop"),
+    ]])

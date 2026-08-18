@@ -91,6 +91,8 @@ services:
       # ---------------- study ----------------
       - key: STUDY_NUDGE_HOUR
         value: "17"                   # evening "today's focus" ping
+      - key: REVIEW_CARD_HOUR
+        value: "9"                    # daily spaced-repetition card
 
       # ---------------- GitHub (optional, READ-ONLY token) ----------------
       - key: GITHUB_TOKEN
