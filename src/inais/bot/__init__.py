@@ -6,7 +6,9 @@ from aiogram import Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from inais.bot.middleware import DedupeMiddleware, OwnerOnlyMiddleware
-from inais.bot.routers import approvals, chat, commands, facts, learning, study, voice
+from inais.bot.routers import (
+    approvals, chat, commands, facts, learning, study, vision, voice,
+)
 
 
 def create_dispatcher() -> Dispatcher:
@@ -16,6 +18,7 @@ def create_dispatcher() -> Dispatcher:
     # FSM-owning routers first (their states must win over plain chat), then commands,
     # then study (documents/quizzes), learning feedback, voice, and finally free chat.
     dp.include_router(approvals.router)
+    dp.include_router(vision.router)   # before study: study's F.document catches everything
     dp.include_router(study.router)
     dp.include_router(facts.router)
     dp.include_router(commands.router)

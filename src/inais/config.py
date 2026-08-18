@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # --- Study (M9) ---
     study_nudge_hour: int = 17
 
+    # --- GitHub (read-only) ---
+    github_token: str = ""
+    github_repos: str = ""          # comma-separated owner/repo for CI checks
+    github_poll_minutes: int = 15
+
     # --- Sub-agent swarm (M10) ---
     subagent_model: str = "claude-haiku-4-5"
     max_parallel_subagents: int = 4
@@ -87,6 +92,14 @@ class Settings(BaseSettings):
     @property
     def binance_enabled(self) -> bool:
         return bool(self.binance_api_key and self.binance_api_secret)
+
+    @property
+    def github_enabled(self) -> bool:
+        return bool(self.github_token)
+
+    @property
+    def github_repo_list(self) -> list[str]:
+        return [r.strip() for r in self.github_repos.split(",") if r.strip()]
 
     @property
     def search_provider(self) -> str:

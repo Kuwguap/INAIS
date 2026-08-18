@@ -57,8 +57,13 @@ def _build_system(agent: registry.AgentDef, memory_text: str, notes_text: str = 
     return "\n\n".join(p for p in parts if p)
 
 
-async def handle_text(bot, chat_id: int, text: str, source: str = "text") -> str:
-    """Main entry: route, run, persist. Returns the reply text."""
+async def handle_text(bot, chat_id: int, text: str, source: str = "text",
+                      images: list[dict] | None = None) -> str:
+    """Main entry: route, run, persist. Returns the reply text.
+
+    `images` are Anthropic image blocks. They force the agent path: the cheap tier is
+    text-only here, and an image is exactly the kind of turn that benefits from tools.
+    """
     cfg = settings()
     turn = trace.begin(chat_id, text, source=source)
     if not cfg.brain_enabled:
@@ -70,6 +75,8 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text") -> str
         r = await router.route(text)
         if _session_pinned(chat_id):
             r = router.Route(r.agent, "complex", "pinned")
+        if images:
+            r = router.Route(r.agent, "complex", f"{r.source}+image")
 
         agent = registry.get_agent(r.agent)
         turn.agent, turn.complexity, turn.route_source = agent.name, r.complexity, r.source
@@ -87,7 +94,9 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text") -> str
 
         # fetch history BEFORE saving the current message, or it would appear twice in the prompt
         history = await store.recent_history(chat_id)
-        user_msg_id = await store.save_message(chat_id, "user", text)
+            # history is text-only, so mark the attachment or later turns lose the context
+        stored_text = f"{text}\n[user sent {len(images)} image(s)]" if images else text
+        user_msg_id = await store.save_message(chat_id, "user", stored_text)
         if user_msg_id is not None:
             asyncio.create_task(store.embed_message(user_msg_id, text))
         # whatever the user raises unprompted is training signal for the interest network
@@ -97,7 +106,7 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text") -> str
             reply = await _simple_turn(agent, mem, history, text, notes)
             _touch_session(chat_id, pinned=False)
         else:
-            reply = await _agent_turn(bot, chat_id, agent, mem, history, text, notes)
+            reply = await _agent_turn(bot, chat_id, agent, mem, history, text, notes, images)
             _touch_session(chat_id, pinned=True)
     except Exception as e:
         trace.finish(error=f"{type(e).__name__}: {e}")
@@ -121,7 +130,7 @@ async def _simple_turn(agent, mem, history: list[dict], text: str, notes: str = 
 
 
 async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: str,
-                      notes: str = "") -> str:
+                      notes: str = "", images: list[dict] | None = None) -> str:
     cfg = settings()
     tools = registry.tools_for(agent.name)
     system = [{
@@ -129,7 +138,12 @@ async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: 
         "text": _build_system(agent, mem.render(), notes),
         "cache_control": {"type": "ephemeral"},
     }]
-    messages: list[dict] = [*history, {"role": "user", "content": text}]
+    # images ride along in the user turn; text alone stays a plain string so cached
+    # prefixes from earlier text-only turns still match
+    user_content: str | list[dict] = text
+    if images:
+        user_content = [*images, {"type": "text", "text": text}]
+    messages: list[dict] = [*history, {"role": "user", "content": user_content}]
     ctx = registry.ToolContext(bot=bot, chat_id=chat_id, agent=agent.name)
 
     final_text = ""

@@ -12,6 +12,7 @@ from inais import controls, db, trace
 from inais.agents import finance
 from inais.brain import autonomy, curiosity, nn
 from inais.config import settings
+from inais.integrations import github
 from inais.jobs import brief, reminders, schedules
 from inais.memory import reflection, store
 from inais.orchestrator import loop
@@ -28,6 +29,8 @@ Just talk to me (text or voice notes). I can:
 • 💰 track your Binance portfolio (read-only) — try /finance
 • 🗓 hold your tasks, deadlines and reminders — "remind me in 20 min to submit"
 • 📚 study with you: send me a PDF, then ask questions, /quiz, or voice-note a recap
+• 👀 read photos: whiteboards, problem sets, receipts, error screenshots
+• 🐙 watch GitHub for reviews, mentions and failed builds
 • 🧠 remember things long-term, and teach myself while you're away
 
 Commands
@@ -39,6 +42,8 @@ Commands
 /learned — what I taught myself · /learn — learn something now
 /brain — neural-network status · /train — retrain it now
 /usage — this month's AI spend · /reflect — consolidate memory now
+/github — reviews, mentions, red builds
+/contacts — people & follow-ups
 /facts — see & correct what I believe · /forget <id>
 /why — explain my last answer · /status — what's running
 /pause · /resume — stop/start all background work
@@ -340,3 +345,53 @@ async def cmd_why(message: Message) -> None:
         await message.answer(chunk)
     if trace.count() > 1:
         await message.answer(f"({trace.count()} turns in the buffer — /why 2 for the one before)")
+
+
+# ---------- github + contacts ----------
+
+@router.message(Command("github"))
+async def cmd_github(message: Message) -> None:
+    if not settings().github_enabled:
+        await message.answer("GitHub isn't configured — set GITHUB_TOKEN (read-only) and "
+                             "optionally GITHUB_REPOS for CI checks.")
+        return
+    try:
+        items = await github.fetch_all()
+    except github.GitHubAuthError as e:
+        await message.answer(f"GitHub rejected the token: {e}")
+        return
+    except Exception:
+        log.exception("/github failed")
+        await message.answer("Couldn't reach GitHub — check the logs.")
+        return
+    for chunk in split_message(github.render_digest(items)):
+        await message.answer(chunk, disable_web_page_preview=True)
+
+
+@router.message(Command("contacts"))
+async def cmd_contacts(message: Message) -> None:
+    p = db.pool()
+    if p is None:
+        await message.answer("No database configured — contacts need one.")
+        return
+    rows = await p.fetch(
+        "select id, name, org, last_contact, follow_up_at from contacts"
+        " order by follow_up_at nulls last, last_contact desc nulls last limit 25")
+    if not rows:
+        await message.answer("No contacts yet — tell me about someone you met and I'll "
+                             "remember them.")
+        return
+    from inais.timeutil import now_local
+
+    today = now_local().date()
+    lines = ["🤝 Contacts"]
+    for r in rows:
+        line = f"#{r['id']} {r['name']}" + (f" ({r['org']})" if r["org"] else "")
+        if r["follow_up_at"]:
+            due = "⚠️ due " if r["follow_up_at"] <= today else "follow up "
+            line += f" — {due}{r['follow_up_at']}"
+        elif r["last_contact"]:
+            line += f" — last spoke {r['last_contact']:%Y-%m-%d}"
+        lines.append(line)
+    for chunk in split_message("\n".join(lines)):
+        await message.answer(chunk)

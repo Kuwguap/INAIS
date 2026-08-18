@@ -58,6 +58,18 @@ async def build_morning_brief() -> str:
     if plan:
         parts.append("📚 Study focus\n" + "\n".join(f"• {r['name']}: {r['focus']}" for r in plan))
 
+    try:
+        from inais.agents.contacts import due_follow_ups
+
+        follow_ups = await due_follow_ups()
+        if follow_ups:
+            parts.append("🤝 Follow up\n" + "\n".join(
+                f"• {c['name']}" + (f" ({c['org']})" if c["org"] else "")
+                + (f" — due {c['follow_up_at']}" if c["follow_up_at"] else "")
+                for c in follow_ups))
+    except Exception:
+        log.exception("morning brief: contacts section failed")
+
     pomo = await p.fetchrow(
         "select count(*) as n, coalesce(sum(minutes), 0) as mins from pomodoro_sessions"
         " where completed and started_at::date = current_date - 1",

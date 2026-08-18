@@ -11,6 +11,11 @@ A single-user assistant that lives in **Telegram** (text + voice) with a hybrid
 - 📚 **study** — send it a lecture PDF, then ask questions from it, get generated quizzes with
   spaced repetition, have it read material aloud, or **voice-note a recap and get back
   corrections, gaps and honest praise**
+- 👀 **vision** — photograph a whiteboard, problem set, receipt, error screenshot or
+  timetable and it goes through the same brain, so it can turn a timetable into tasks or
+  explain an error from a screenshot
+- 🐙 **GitHub** — read-only watch for PRs awaiting your review, issue mentions, and red CI
+- 🤝 **contacts** — who you met, where, when you last spoke, and when to follow up
 - 🧠 **memory + a growing brain** — pgvector long-term memory consolidated nightly (including
   your writing style, learned from how you edit its drafts), plus an optional autonomous
   learning loop and a small **trainable neural network** that learns what you pay attention to
@@ -126,6 +131,24 @@ material, and replies with **Covered / Corrections / Gaps / Well done**. It also
 automatically if you voice-note a recap right after a study-labelled pomodoro
 (`/pomodoro 25 physics revision`).
 
+### Vision, GitHub and contacts
+
+**Photos** need no setup. Send one — with or without a caption — and it runs through the normal
+orchestrator, so memory and tools still apply: a photo of a timetable can become tasks, a
+receipt can be logged, an error screenshot can be debugged against your own notes. JPEG, PNG,
+GIF and WebP, up to 4 MB; images arriving as *files* work too.
+
+**GitHub** needs a read-only token: GitHub → Settings → Developer settings → **Fine-grained
+tokens**. Grant *read* access only (Pull requests: Read, Issues: Read, Actions: Read for CI) —
+INAIS has no write path and should never hold a token that does. Set `GITHUB_TOKEN`, and
+`GITHUB_REPOS` (`owner/repo,owner/other`) for the repos whose CI you want watched. It polls
+every `GITHUB_POLL_MINUTES` (default 15) and notifies once per item; `/github` shows the
+current state on demand.
+
+**Contacts** need no setup: say *"I met Ama from the robotics lab at the career fair, remind me
+to follow up in a week"* and it stores the person, links a searchable fact, and surfaces the
+follow-up in your morning brief when it comes due. `/contacts` lists them.
+
 ### M10 — Parallel sub-agents
 Ask something spanning several specialists — *"check my inbox, my portfolio, and plan my
 afternoon"* — and the orchestrator fans out to sub-agents concurrently instead of working
@@ -169,6 +192,8 @@ really does compound: it knows more about your world every week.
 | `/quiz [topic]` · `/plan [exam]` · `/docs` | spaced-repetition quiz · study plan · documents |
 | `/review [topic]` | brain-dump: recap out loud, get corrections and gaps |
 | `/finance` | portfolio snapshot with 24h change |
+| `/github` | reviews, mentions and failing builds waiting on you |
+| `/contacts` | people, last contact, and due follow-ups |
 | `/learned` · `/curiosity` · `/learn` | what it taught itself · what's next · learn now |
 | `/brain` · `/train` | neural-network status · retrain on your signals |
 | `/usage` · `/reflect` | month-to-date AI spend · run memory consolidation now |
@@ -285,6 +310,10 @@ took over.
 | 8 | Brief | `/brief` | today's calendar/tasks/reminders; the scheduled one arrives at `MORNING_BRIEF_HOUR` |
 | 9 | Study | send a lecture PDF | "📚 Ingested … N pages, M chunks"; a question only that PDF answers is answered correctly |
 | 9 | Review | `/review` then voice-note a recap | Covered / Corrections / Gaps / Well done |
+| — | Vision | photograph a handwritten timetable, caption "turn this into tasks" | tasks appear in `/tasks`; `/why` shows `source: image` and the planner tools |
+| — | Vision (file) | send a PNG screenshot as a *file*, not a photo | it is read, not answered with "I can only ingest PDFs" |
+| — | GitHub | `/github` | reviews/mentions/red builds with links; a new one arrives unprompted within `GITHUB_POLL_MINUTES` |
+| — | Contacts | "I met Ama from the robotics lab, follow up in 1 day" → `/contacts` | listed with the follow-up; it appears in tomorrow's morning brief |
 | 10 | Sub-agents | "check my inbox, my portfolio, and plan my afternoon" | one merged answer; `/why` lists sub-agent tool calls |
 | 11 | Autonomy | set `LEARNING_ENABLED=true`, leave it alone for an hour | `/learned` shows new cited notes; `/curiosity` shows the queue |
 | 11 | Network | tap Draft-reply/Ignore on a few emails, then `/train` | `/brain` reports a version with CV AUC and example counts |

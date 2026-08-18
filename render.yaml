@@ -92,6 +92,14 @@ services:
       - key: STUDY_NUDGE_HOUR
         value: "17"                   # evening "today's focus" ping
 
+      # ---------------- GitHub (optional, READ-ONLY token) ----------------
+      - key: GITHUB_TOKEN
+        sync: false                   # fine-grained PAT with READ access only
+      - key: GITHUB_REPOS
+        value: ""                     # comma-separated owner/repo to watch for CI failures
+      - key: GITHUB_POLL_MINUTES
+        value: "15"
+
       # ---------------- sub-agent swarm ----------------
       - key: MAX_PARALLEL_SUBAGENTS
         value: "4"                    # concurrency cap; 512 MB fits ~4 comfortably

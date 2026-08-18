@@ -184,3 +184,28 @@ TOOLS = [
 ]
 
 register_agent(AgentDef(name="study", prompt=PROMPT, tools=TOOLS))
+
+
+async def _github_status(ctx: ToolContext, args: dict) -> str:
+    """Read-only: what is waiting on the user in GitHub right now."""
+    from inais.config import settings
+    from inais.integrations import github
+
+    if not settings().github_enabled:
+        return "GitHub isn't configured (no GITHUB_TOKEN)."
+    try:
+        items = await github.fetch_all()
+    except github.GitHubAuthError as e:
+        return f"GitHub rejected the token: {e}"
+    except Exception as e:
+        return f"Could not reach GitHub: {e}"
+    return github.render_digest(items)
+
+
+TOOLS.append(Tool(
+    name="github_status",
+    description="Check GitHub for pull requests awaiting the user's review, issues mentioning "
+                "them, and failing CI runs. Read-only — you cannot comment, merge or push.",
+    input_schema={"type": "object", "properties": {}},
+    handler=_github_status,
+))

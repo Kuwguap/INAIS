@@ -31,15 +31,16 @@ ruff check src tests scripts
 
 - `src/inais/main.py` — entrypoint. `RUN_MODE=local` → aiogram long polling; `RUN_MODE=web` →
   aiohttp webhook server (ACKs 200 instantly, processes updates in background tasks).
-- `src/inais/bot/` — aiogram routers (commands, chat, voice, approvals, study, learning),
-  inline keyboards, middleware (owner allowlist + update dedupe).
+- `src/inais/bot/` — aiogram routers (commands, chat, voice, vision, approvals, study, facts,
+  learning), inline keyboards, middleware (owner allowlist + update dedupe). `vision` must stay
+  registered before `study`, whose `F.document` handler would otherwise swallow image files.
 - `src/inais/orchestrator/` — `router.py` picks agent+model (rules → cheap OpenAI classifier);
   `loop.py` runs the Anthropic tool loop; `registry.py` maps agents → toolsets and owns the
   common tools; `swarm.py` runs specialists concurrently and holds the blackboard.
 - `src/inais/agents/` — prompts + tool definitions per agent (email, finance, planner, study,
   plus `calendar_tools.py` when `CALENDAR_ENABLED`).
-- `src/inais/integrations/` — Gmail REST, Google Calendar, Binance read-only, STT/TTS (ffmpeg),
-  web search (Tavily → Brave → DuckDuckGo).
+- `src/inais/integrations/` — Gmail REST, Google Calendar, Binance read-only, GitHub read-only,
+  STT/TTS (ffmpeg), web search (Tavily → Brave → DuckDuckGo).
 - `src/inais/memory/` — pgvector store, hybrid RRF retrieval, nightly reflection job.
 - `src/inais/study/` — PDF ingestion/chunking, exam plans, quizzes, brain-dump review.
 - `src/inais/brain/` — the growing brain: `nn.py` (NumPy network + training), `signals.py`
@@ -114,6 +115,8 @@ substrate; the network is the part with preferences.
 2. No model ever gets a send-capable tool. Email sends happen ONLY in the human approval
    callback handler (`bot/routers/approvals.py`) after an inline-keyboard tap.
 3. Binance key is read-only ("Enable Reading"); never add trade/withdraw permissions or endpoints.
+   The GitHub token is read-only too: `integrations/github.py` issues GETs only — never add a
+   POST/PATCH path (comment, merge, close, dispatch) to it.
 4. Gmail scope is `gmail.modify` only (no delete scope); calendar adds `calendar.events` only.
 5. Secrets never in the repo. Local: `.env` (gitignored). Render: Blueprint `sync: false` +
    Secret File for the Google OAuth JSON.
