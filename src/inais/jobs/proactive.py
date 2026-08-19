@@ -8,6 +8,7 @@ nothing is the correct answer most of the time — then the result is rate-limit
 from __future__ import annotations
 
 import logging
+import re
 
 from inais import db, llm, persona
 from inais.config import settings
@@ -36,11 +37,15 @@ you already told them today, or a nudge about something they're clearly in the m
 Never invent activity you weren't given. If it can wait for the morning brief, it waits."""
 
 
-async def _context() -> str:
-    """The real state of the user's day — no invention downstream."""
+async def _context() -> tuple[str, dict | None]:
+    """The real state of the user's day — no invention downstream.
+
+    Returns (context_text, unshared_knowledge_candidate). The candidate is one thing it
+    researched on its own that hasn't been shared yet; if the decision sends and references it,
+    consider() marks it surfaced so it never repeats."""
     p = db.pool()
     if p is None:
-        return ""
+        return "", None
     parts: list[str] = [f"Local time: {now_local():%A %H:%M}"]
 
     tasks = await p.fetch(
@@ -55,11 +60,47 @@ async def _context() -> str:
     if overdue:
         parts.append(f"Overdue tasks: {overdue}")
 
+    # next exam (study agent)
+    try:
+        from inais.study import store as study_store
+
+        ex = await study_store.upcoming_exam()
+        if ex:
+            days = (ex["date"] - now_local().date()).days
+            parts.append(f"Next exam: {ex['name']} in {days} day(s)")
+    except Exception:
+        log.exception("proactive context: exam lookup failed")
+
     follow = await p.fetch(
         "select name from contacts where follow_up_at is not null"
         "   and follow_up_at <= current_date limit 3")
     if follow:
         parts.append("Follow-ups due: " + ", ".join(c["name"] for c in follow))
+
+    # commitments the user made ("I'll email my advisor")
+    try:
+        from inais.agents import commitments
+
+        commits = await commitments.due_commitments(3)
+        if commits:
+            parts.append("Commitments due: " + "; ".join(c["text"] for c in commits))
+    except Exception:
+        log.exception("proactive context: commitments lookup failed")
+
+    # application deadlines + stalled applications
+    try:
+        from inais.agents import applications
+
+        deadlines = await applications.due_deadlines(3)
+        if deadlines:
+            parts.append("Application deadlines: " + "; ".join(
+                f"{a['org']} ({a['deadline']:%d %b})" for a in deadlines))
+        stale = await applications.stale_applications(limit=3)
+        if stale:
+            parts.append("Applications with no update in a while: " + "; ".join(
+                f"{a['org']} — {a['status']}" for a in stale))
+    except Exception:
+        log.exception("proactive context: applications lookup failed")
 
     learned = await p.fetch(
         "select topic, summary from knowledge where learned_at > now() - interval '12 hours'"
@@ -74,16 +115,45 @@ async def _context() -> str:
     if mood and mood["n"]:
         parts.append(f"Journal mood over {mood['n']} recent entries: {float(mood['score']):+.1f}")
 
+    # mood direction over the last week — lets a well-judged warm word land after a hard stretch
+    try:
+        from inais import journal
+
+        d = await journal.trend_direction(7)
+        if d:
+            parts.append(f"Mood trend: {d}")
+    except Exception:
+        log.exception("proactive context: mood trend failed")
+
     last_user = await p.fetchval(
         "select extract(epoch from (now() - max(ts))) / 3600 from messages where role = 'user'")
     if last_user is not None:
         parts.append(f"Hours since they last messaged: {float(last_user):.1f}")
 
+    # one thing it researched on its own that it hasn't shared yet (de-duped via surfaced_at)
+    candidate: dict | None = None
+    unshared = await p.fetchrow(
+        "select id, topic, summary from knowledge where surfaced_at is null"
+        "   and learned_at > now() - interval '7 days' and engagement >= 0"
+        " order by engagement desc, learned_at desc limit 1")
+    if unshared:
+        parts.append(f"Unshared thing you researched: {unshared['topic']} — "
+                     f"{unshared['summary'][:120]}")
+        candidate = {"id": unshared["id"], "topic": unshared["topic"]}
+
     already = await p.fetch(
         "select content from proactive_log where sent_at::date = current_date limit 5")
     parts.append("Already said unprompted today: " + (
         "; ".join(a["content"][:80] for a in already) if already else "nothing"))
-    return "\n".join(parts)
+    return "\n".join(parts), candidate
+
+
+def _mentions(message: str, topic: str) -> bool:
+    """True if the sent message plausibly references the topic — so knowledge is only marked
+    'surfaced' when it was actually shared, not when the model sent something unrelated."""
+    msg = (message or "").lower()
+    words = re.findall(r"[a-z0-9]{4,}", (topic or "").lower())
+    return any(w in msg for w in words)
 
 
 async def consider(bot) -> str | None:
@@ -96,7 +166,7 @@ async def consider(bot) -> str | None:
     if not cfg.brain_enabled:
         return None
 
-    context = await _context()
+    context, candidate = await _context()
     if not context:
         return None
     try:
@@ -143,6 +213,13 @@ async def consider(bot) -> str | None:
         await bot.send_message(cfg.owner_telegram_id, message)
 
     await persona.log_proactive("checkin", message, medium=medium)
+    # if it actually shared the thing it researched, mark it surfaced so it never repeats
+    if candidate is not None and _mentions(message, candidate["topic"]):
+        try:
+            await db.pool().execute(
+                "update knowledge set surfaced_at = now() where id = $1", candidate["id"])
+        except Exception:
+            log.exception("marking knowledge surfaced failed")
     log.info("proactive %s sent: %s", medium, message[:80])
     return message
 

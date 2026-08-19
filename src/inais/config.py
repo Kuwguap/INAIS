@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     weekly_review_day: str = "sun"   # APScheduler day_of_week: mon..sun
     weekly_review_hour: int = 18
 
+    # --- Reading digest ---
+    reading_digest_day: str = "sun"  # weekly roundup of unread saved links
+    reading_digest_hour: int = 20
+
     # --- Tracking (applications + expenses from email) ---
     default_currency: str = "USD"   # display currency for /spend totals
 

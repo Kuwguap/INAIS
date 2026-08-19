@@ -99,7 +99,42 @@ async def add_entry(transcript: str, source: str = "voice") -> dict | None:
         transcript, vec, mood, score_for(mood), topics,
         source if source in ("voice", "text") else "text",
     )
+    # a fresh entry changes the mood signal — drop the 30-min affect cache so the persona
+    # register reflects it on the very next turn, not up to half an hour later
+    try:
+        from inais.brain import affect
+        affect.invalidate()
+    except Exception:
+        log.exception("affect invalidate after journal entry failed")
     return {"id": row["id"], "mood": mood, "topics": topics, "created_at": row["created_at"]}
+
+
+def _direction(scores: list[float]) -> str:
+    """'improving' | 'declining' | '' from a time-ordered list of mood scores.
+
+    Compares the first half of the window to the second; needs ≥4 points and a real gap so a
+    single off day doesn't read as a trend. This is an ORDERING signal, not a measurement."""
+    if len(scores) < 4:
+        return ""
+    half = len(scores) // 2
+    first, second = scores[:half], scores[half:]
+    delta = sum(second) / len(second) - sum(first) / len(first)
+    if abs(delta) < 0.4:
+        return ""
+    return "improving" if delta > 0 else "declining"
+
+
+async def trend_direction(days: int = 7) -> str | None:
+    """'improving' | 'declining' | None over recent daily mood averages — for the proactive
+    check-in, so a well-judged word can land after a hard stretch (never clinical language)."""
+    p = db.pool()
+    if p is None:
+        return None
+    since = now_local().date() - timedelta(days=days - 1)
+    rows = await p.fetch(
+        "select created_at::date as day, avg(mood_score) as score from journal_entries"
+        " where created_at::date >= $1 group by day order by day", since)
+    return _direction([float(r["score"]) for r in rows]) or None
 
 
 async def trend(days: int = 14) -> str:
@@ -128,13 +163,8 @@ async def trend(days: int = 14) -> str:
         " where created_at::date >= $1 group by topic order by n desc limit 5", since)
 
     average = sum(present) / len(present)
-    direction = ""
-    if len(present) >= 4:
-        half = len(present) // 2
-        first, second = present[:half], present[half:]
-        delta = sum(second) / len(second) - sum(first) / len(first)
-        if abs(delta) >= 0.4:
-            direction = " — trending up" if delta > 0 else " — trending down"
+    direction = {"improving": " — trending up",
+                 "declining": " — trending down"}.get(_direction(present), "")
 
     entries = sum(v[1] for v in by_day.values())
     lines = [

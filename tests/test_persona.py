@@ -110,3 +110,10 @@ def test_persona_advertises_web_tools():
     text = persona.CHARACTER
     assert "web_search" in text and "read_url" in text
     assert "curl" in text  # explicitly told never to suggest it
+
+
+def test_may_speak_now_is_pause_gated():
+    """/pause must stop proactive messages even on a path outside the scheduler."""
+    import inspect
+
+    assert "is_paused" in inspect.getsource(persona.may_speak_now)

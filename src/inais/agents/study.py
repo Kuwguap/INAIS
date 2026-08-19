@@ -278,3 +278,69 @@ TOOLS.extend([
         handler=_generate_drills,
     ),
 ])
+
+
+async def _add_cloze_card(ctx: ToolContext, args: dict) -> str:
+    from inais.study import cloze, spaced
+
+    sentence = str(args.get("sentence", "")).strip()
+    answer = str(args.get("answer", "")).strip()
+    if not sentence or not answer:
+        return "A cloze card needs a full sentence and the term to blank out."
+    card_id = await spaced.add_card(
+        front=cloze.mask_cloze(sentence, answer), back=sentence, source_kind="manual",
+        topic=str(args.get("topic", "")).strip() or None)
+    if card_id is None:
+        return "That cloze card already exists (or there's no database)."
+    return f"Cloze card #{card_id} added — it'll come round in tomorrow's review."
+
+
+async def _generate_cloze_cards(ctx: ToolContext, args: dict) -> str:
+    from inais.study import cloze
+
+    topic = str(args.get("topic", "")).strip()
+    if not topic:
+        return "Which topic should the cloze cards cover?"
+    try:
+        n = int(args.get("n", 8))
+    except (TypeError, ValueError):
+        n = 8
+    doc_id = args.get("document_id")
+    _, message = await cloze.generate(topic, n, int(doc_id) if doc_id else None)
+    return message
+
+
+TOOLS.extend([
+    Tool(
+        name="add_cloze_card",
+        description="Save a fill-in-the-blank (cloze) flashcard — a full sentence with one key "
+                    "term the user must recall. Use for definitions and facts where the wording "
+                    "matters. They review it with Got it / Missed like any other card.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "sentence": {"type": "string", "description": "The full factual sentence."},
+                "answer": {"type": "string",
+                           "description": "The term in the sentence to blank out."},
+                "topic": {"type": "string"},
+            },
+            "required": ["sentence", "answer"],
+        },
+        handler=_add_cloze_card,
+    ),
+    Tool(
+        name="generate_cloze_cards",
+        description="Auto-make fill-in-the-blank cards from the user's ingested material on a "
+                    "topic. Use when they ask for cloze cards or fill-in-the-blank practice.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string"},
+                "n": {"type": "integer", "description": "How many cards (default 8)."},
+                "document_id": {"type": "integer"},
+            },
+            "required": ["topic"],
+        },
+        handler=_generate_cloze_cards,
+    ),
+])

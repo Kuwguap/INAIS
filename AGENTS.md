@@ -172,14 +172,26 @@ mislabelled before the user had a chance to answer.
 
 Keep two things true: the character must never licence claiming feelings or claiming a mail
 was sent, and proactive messages stay gated on `may_speak_now()` — enabled flag, quiet hours,
-daily cap. `jobs/proactive.py` is told that NOTHING is usually the right answer; if you loosen
-that prompt, raise the bar somewhere else instead.
+daily cap, and the pause switch. `jobs/proactive.py` is told that NOTHING is usually the right
+answer; if you loosen that prompt, raise the bar somewhere else instead.
+
+`_context()` is the observant part: it assembles the real state of the day (due tasks, next
+exam, application deadlines/stalls, contact follow-ups, `commitments` the user made, mood
+trend, one unshared thing it researched) and lets the SAME `DECIDE_SYSTEM` prompt choose —
+richer context, not new licence. It returns `(text, candidate)`; when the sent message
+actually references the researched item (`_mentions`), `consider()` writes `knowledge.surfaced_at`
+so it never repeats. Commitments come only from the `note_commitment` tool the model calls when
+the user says they'll do something — never inferred behind their back.
 
 ## Security invariants (do not weaken)
 
 1. Owner-only: middleware drops every update not from `OWNER_TELEGRAM_ID`.
 2. No model ever gets a send-capable tool. Email sends happen ONLY in the human approval
-   callback handler (`bot/routers/approvals.py`) after an inline-keyboard tap.
+   callback handler (`bot/routers/approvals.py`) after an inline-keyboard tap. The two tools
+   that DO call `ctx.bot` (`speak`, `create_pdf`) are `orchestrator_only=True`, so sub-agents
+   (the autonomy curator, parallel specialists) can't emit unprompted voice notes or files
+   that bypass the proactive guardrails — only the user-facing orchestrator can. New DB-writing
+   tools (e.g. `note_commitment`) must never touch `ctx.bot`.
 3. Binance key is read-only ("Enable Reading"); never add trade/withdraw permissions or endpoints.
    The GitHub token is read-only too: `integrations/github.py` issues GETs only — never add a
    POST/PATCH path (comment, merge, close, dispatch) to it.
@@ -196,7 +208,9 @@ that prompt, raise the bar somewhere else instead.
    a guarded filter (`any_awaiting_ack`) so the word only gets claimed while something rings.
 8. `/pause` must stop every background behaviour. Any new autonomous path (a job, a loop, a
    self-triggered action) has to check `controls.is_paused()` if it can run outside the
-   scheduler — the scheduler pause only covers registered jobs.
+   scheduler — the scheduler pause only covers registered jobs. `persona.may_speak_now()` is
+   itself pause-gated, so every proactive path (check-ins, mood-aware, while-you-were-away)
+   inherits the pause through that one gate.
 9. Facts are never hard-deleted: `deleted_at` for forgetting, `superseded_by` for corrections.
    Any new retrieval path over `facts` must filter `deleted_at is null and superseded_by is
    null`, or forgotten beliefs come back.

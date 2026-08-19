@@ -1,4 +1,4 @@
--- INAIS — complete schema (migrations 001-023)
+-- INAIS — complete schema (migrations 001-025)
 -- Paste into the Supabase SQL editor and run once. Idempotent; safe to re-run.
 
 create extension if not exists vector;
@@ -793,6 +793,26 @@ create table if not exists persona_controls (
     updated_at timestamptz not null default now()
 );
 
+-- ==================== 024_reading_read_at.sql ====================
+-- Read-state for saved links, so the weekly reading digest only surfaces what's unread.
+-- Links live as documents rows with kind='link'; read_at null = still in the queue.
+alter table documents add column if not exists read_at timestamptz;
+create index if not exists documents_unread_links_idx
+    on documents (uploaded_at desc) where kind = 'link' and read_at is null;
+
+-- ==================== 025_commitments.sql ====================
+-- Commitments: things the user said they'd do, captured by the note_commitment tool so the
+-- assistant can follow through and check in. Mirrors the contacts.follow_up_at pattern.
+create table if not exists commitments (
+    id         bigserial primary key,
+    text       text not null,
+    created_at timestamptz not null default now(),
+    due_at     date,
+    done       boolean not null default false,
+    source_msg text
+);
+create index if not exists commitments_due_idx on commitments (due_at) where not done;
+
 -- ==================== bookkeeping ====================
 create table if not exists schema_migrations (
     filename   text primary key,
@@ -821,7 +841,9 @@ insert into schema_migrations (filename) values
     ('020_alarm.sql'),
     ('021_engagement_backfill.sql'),
     ('022_reminder_lifecycle.sql'),
-    ('023_persona_controls.sql')
+    ('023_persona_controls.sql'),
+    ('024_reading_read_at.sql'),
+    ('025_commitments.sql')
 on conflict do nothing;
 
 select count(*) as tables_created from information_schema.tables where table_schema = 'public';

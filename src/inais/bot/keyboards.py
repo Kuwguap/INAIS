@@ -164,9 +164,22 @@ def drill_kb(question_id: int) -> InlineKeyboardMarkup:
 
 
 def reminder_stop_kb(reminder_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🛑 Stop", callback_data=f"rstop:{reminder_id}"),
-    ]])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛑 Stop", callback_data=f"rstop:{reminder_id}")],
+        [InlineKeyboardButton(text="💤 10 min", callback_data=f"rsnz:{reminder_id}:10"),
+         InlineKeyboardButton(text="💤 1 hr", callback_data=f"rsnz:{reminder_id}:60")],
+    ])
+
+
+def commitments_kb(items: list[dict]) -> InlineKeyboardMarkup | None:
+    """A '✅ Done' button per open commitment. callback_data = cmtdone:{id} (well under 64B)."""
+    if not items:
+        return None
+    rows = [
+        [InlineKeyboardButton(text=f"✅ {c['text'][:45]}", callback_data=f"cmtdone:{c['id']}")]
+        for c in items[:10]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def persona_kb(current: dict) -> InlineKeyboardMarkup:

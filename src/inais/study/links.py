@@ -90,6 +90,26 @@ async def recent(limit: int = 15) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def unread(limit: int = 15) -> list[dict]:
+    """Saved links not yet delivered in a reading digest (read_at is null)."""
+    p = db.pool()
+    if p is None:
+        return []
+    rows = await p.fetch(
+        "select id, title, source_url, summary, uploaded_at from documents"
+        " where kind = 'link' and read_at is null order by uploaded_at desc limit $1", limit)
+    return [dict(r) for r in rows]
+
+
+async def mark_read(ids: list[int]) -> None:
+    """Mark links delivered. Called only AFTER a digest actually sends, so a failed send
+    doesn't silently lose them from the queue."""
+    p = db.pool()
+    if p is None or not ids:
+        return
+    await p.execute("update documents set read_at = now() where id = any($1::bigint[])", ids)
+
+
 def render(items: list[dict]) -> str:
     if not items:
         return ("🔗 Nothing saved yet — forward me a link and I'll read it, summarise it, "

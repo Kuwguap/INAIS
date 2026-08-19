@@ -178,6 +178,12 @@ services:
       - key: WEEKLY_REVIEW_HOUR
         value: "18"
 
+      # ---------------- reading digest ----------------
+      - key: READING_DIGEST_DAY
+        value: sun                    # mon..sun, in TIMEZONE
+      - key: READING_DIGEST_HOUR
+        value: "20"
+
       # ---------------- tracking (applications + expenses from email) ----------------
       - key: DEFAULT_CURRENCY
         value: USD                    # fallback when a receipt doesn't state a currency

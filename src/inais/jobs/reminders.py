@@ -181,6 +181,38 @@ async def nag_unacknowledged(bot) -> int:
     return nagged
 
 
+async def snooze(reminder_id: int, minutes: int) -> dict | None:
+    """Push a ringing reminder out by `minutes`. Returns the row, or None if it's gone.
+
+    One-shot: re-arm in place (fire_at forward, back to pending, silence the current ring) so
+    deliver_due re-fires it. Recurring: NEVER overwrite fire_at (that's the next occurrence) —
+    stop the current ring and insert a decoupled one-shot copy for the snoozed slot."""
+    p = db.pool()
+    if p is None:
+        return None
+    fire_at = datetime.now(UTC) + timedelta(minutes=max(1, int(minutes)))
+    async with p.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                "select id, text, recurring_cron, message_id from reminders where id = $1",
+                reminder_id)
+            if row is None:
+                return None
+            if row["recurring_cron"] is None:
+                await conn.execute(
+                    "update reminders set fire_at = $1, fired = false, acknowledged = true,"
+                    " nag_at = null, nag_count = 0, message_id = null where id = $2",
+                    fire_at, reminder_id)
+            else:
+                await conn.execute(
+                    "update reminders set acknowledged = true, nag_at = null where id = $1",
+                    reminder_id)
+                await conn.execute(
+                    "insert into reminders (text, fire_at, recurring_cron) values ($1, $2, null)",
+                    row["text"], fire_at)
+    return {"id": reminder_id, "text": row["text"], "message_id": row["message_id"]}
+
+
 async def acknowledge(reminder_id: int) -> dict | None:
     """Stop one reminder. Returns the row, or None when it wasn't waiting."""
     p = db.pool()

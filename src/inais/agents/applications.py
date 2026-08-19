@@ -149,6 +149,22 @@ async def due_deadlines(limit: int = 5) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+STALE_APPLICATION_DAYS = 14
+
+
+async def stale_applications(days: int = STALE_APPLICATION_DAYS, limit: int = 3) -> list[dict]:
+    """Live applications with no update in `days` — a nudge to send a follow-up."""
+    p = db.pool()
+    if p is None:
+        return []
+    rows = await p.fetch(
+        "select id, org, role, status, updated_at from applications"
+        " where status not in ('rejected', 'withdrawn')"
+        "   and updated_at < now() - make_interval(days => $1)"
+        " order by updated_at limit $2", days, limit)
+    return [dict(r) for r in rows]
+
+
 async def link_task(app_id: int, task_id: int) -> None:
     p = db.pool()
     if p is not None:

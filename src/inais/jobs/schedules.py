@@ -12,7 +12,7 @@ from inais.bot import keyboards
 from inais.brain import autonomy, curiosity, nn
 from inais.config import settings
 from inais.integrations import binance, gmail
-from inais.jobs import brief, github_watch, proactive, reminders, weekly
+from inais.jobs import brief, github_watch, proactive, reading, reminders, weekly
 from inais.memory import reflection
 from inais.textutil import split_message
 
@@ -167,6 +167,21 @@ def setup(bot) -> AsyncIOScheduler:
         except Exception:
             log.exception("weekly review failed")
 
+    async def reading_digest() -> None:
+        try:
+            items = await reading.unread_batch()
+            text = reading.build(items)
+            if not text:
+                return
+            for chunk in split_message(text):
+                await bot.send_message(cfg.owner_telegram_id, chunk)
+            # mark read only AFTER every chunk sent — a failed send keeps them in the queue
+            from inais.study import links
+
+            await links.mark_read([i["id"] for i in items])
+        except Exception:
+            log.exception("reading digest failed")
+
     async def review_card() -> None:
         """One card a day; the session continues from the buttons if more are due."""
         try:
@@ -225,6 +240,8 @@ def setup(bot) -> AsyncIOScheduler:
                           max_instances=1, coalesce=True)
     scheduler.add_job(weekly_review, "cron", day_of_week=cfg.weekly_review_day,
                       hour=cfg.weekly_review_hour, minute=0, id="weekly_review")
+    scheduler.add_job(reading_digest, "cron", day_of_week=cfg.reading_digest_day,
+                      hour=cfg.reading_digest_hour, minute=0, id="reading_digest")
     if cfg.github_enabled:
         scheduler.add_job(github_poll, "interval", minutes=cfg.github_poll_minutes,
                           id="github_poll", max_instances=1, coalesce=True)

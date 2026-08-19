@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 
-from inais import db
+from inais import controls, db
 from inais.config import settings
 from inais.timeutil import now_local
 
@@ -245,6 +245,10 @@ async def may_speak_now() -> tuple[bool, str]:
     cfg = settings()
     if not cfg.proactive_enabled:
         return False, "proactive messages are off (PROACTIVE_ENABLED)"
+    # The scheduler pause covers registered jobs, but any proactive path that runs outside it
+    # would still fire while paused — so gate here too, covering every current and future caller.
+    if controls.is_paused():
+        return False, "paused (/resume to re-enable)"
     if db.pool() is None:
         return False, "no database"
     if in_quiet_hours():

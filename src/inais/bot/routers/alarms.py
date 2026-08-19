@@ -38,6 +38,28 @@ async def on_stop_button(cb: CallbackQuery) -> None:
                 raise
 
 
+@router.callback_query(F.data.startswith("rsnz:"))
+async def on_snooze(cb: CallbackQuery) -> None:
+    try:
+        _, rid_s, mins_s = (cb.data or "rsnz:0:0").split(":", 2)
+        reminder_id, minutes = int(rid_s), int(mins_s)
+    except ValueError:
+        await cb.answer("Malformed.")
+        return
+    row = await reminders.snooze(reminder_id, minutes)
+    if row is None:
+        await cb.answer("Already stopped.")
+        return
+    await cb.answer(f"Snoozed {minutes} min 💤")
+    if cb.message:
+        label = "1 hour" if minutes == 60 else f"{minutes} min"
+        try:
+            await cb.message.edit_text(f"⏰ {row['text']}\n\n💤 Snoozed — back in {label}.")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+
 async def _stop_meant_here(message: Message) -> bool:
     """True only when this text is a stop phrase AND a reminder is waiting for one."""
     if not reminders.is_stop_text(message.text or ""):

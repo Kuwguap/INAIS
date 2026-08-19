@@ -15,7 +15,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from inais.agents import applications, expenses
+from inais.agents import applications, commitments, expenses
 from inais.bot import keyboards
 from inais.textutil import split_message
 
@@ -30,6 +30,28 @@ async def _safe_edit(message, text: str, markup=None) -> None:
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e):
             raise
+
+
+# ---------- commitments ----------
+
+@router.message(Command("commitments"))
+async def cmd_commitments(message: Message) -> None:
+    items = await commitments.open_commitments()
+    await message.answer(commitments.render(items), reply_markup=keyboards.commitments_kb(items))
+
+
+@router.callback_query(F.data.startswith("cmtdone:"))
+async def on_commitment_done(cb: CallbackQuery) -> None:
+    try:
+        cid = int((cb.data or "").split(":", 1)[1])
+    except (ValueError, IndexError):
+        await cb.answer("Couldn't read that.")
+        return
+    done = await commitments.mark_done(cid)
+    await cb.answer("Done ✅" if done else "Already done.")
+    if cb.message:
+        items = await commitments.open_commitments()
+        await _safe_edit(cb.message, commitments.render(items), keyboards.commitments_kb(items))
 
 
 # ---------- applications ----------

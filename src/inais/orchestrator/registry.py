@@ -340,6 +340,9 @@ register_common_tool(Tool(
         "required": ["text"],
     },
     handler=_speak,
+    # sub-agents (autonomy curator, parallel specialists) must not send unprompted voice notes
+    # that bypass may_speak_now/quiet-hours/daily-cap. Only the user-facing orchestrator speaks.
+    orchestrator_only=True,
 ))
 
 register_common_tool(Tool(
@@ -493,4 +496,6 @@ register_common_tool(Tool(
         "required": ["title", "content"],
     },
     handler=_create_pdf,
+    # like speak: a send-capable tool, kept off sub-agents so they can't emit unprompted files
+    orchestrator_only=True,
 ))

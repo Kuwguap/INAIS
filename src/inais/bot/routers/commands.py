@@ -32,7 +32,7 @@ ALL_COMMANDS = """All commands
 
 Study — /quiz /card /deck /drill /review /plan /docs /links
 Money — /finance /spend /apps /usage
-Plan  — /tasks /brief /pomodoro /stats /weekly /contacts
+Plan  — /tasks /brief /pomodoro /stats /weekly /contacts /commitments
 Brain — /learned /learn /curiosity /brain /train /facts /forget /mood /journal
 Dev   — /github
 System— /status /diag /why /pause /resume /persona /reflect /reset /menu"""

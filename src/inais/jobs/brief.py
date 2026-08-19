@@ -70,6 +70,17 @@ async def build_morning_brief() -> str:
     except Exception:
         log.exception("morning brief: contacts section failed")
 
+    try:
+        from inais.agents.commitments import due_commitments
+
+        commits = await due_commitments()
+        if commits:
+            parts.append("🤝 You said you'd\n" + "\n".join(
+                f"• {c['text']}" + (f" (by {c['due_at']:%d %b})" if c["due_at"] else "")
+                for c in commits))
+    except Exception:
+        log.exception("morning brief: commitments section failed")
+
     pomo = await p.fetchrow(
         "select count(*) as n, coalesce(sum(minutes), 0) as mins from pomodoro_sessions"
         " where completed and started_at::date = current_date - 1",
