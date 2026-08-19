@@ -24,9 +24,77 @@ PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-opus-5": (5.0, 25.0),
     "gpt-5-mini": (0.25, 2.0),
     "gpt-5-nano": (0.20, 1.25),
+    "gpt-5": (1.25, 10.0),        # generic gpt-5*; keep AFTER the mini/nano entries
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1": (2.0, 8.0),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini-transcribe": (1.25, 5.0),  # audio-input tokens
     "text-embedding-3-small": (0.02, 0.0),
 }
+
+
+# Reasoning models spend hidden tokens from the SAME budget as the reply, so a small
+# max_completion_tokens gets consumed before any output exists and the API 400s. Floor it.
+REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+REASONING_MIN_TOKENS = 2000
+_TOKEN_LIMIT_HINTS = ("max_tokens", "output limit")
+
+
+def completion_budget(model: str, requested: int) -> int:
+    """Token budget to actually send, allowing for invisible reasoning tokens."""
+    if model.startswith(REASONING_PREFIXES):
+        return max(requested, REASONING_MIN_TOKENS)
+    return requested
+
+
+def _is_token_limit_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(hint in text for hint in _TOKEN_LIMIT_HINTS)
+
+
+async def _chat_completion(*, model: str, messages: list[dict], purpose: str,
+                           max_completion_tokens: int, low_effort: bool = False, **extra):
+    """Every OpenAI chat call goes through here: budget floor, retries, usage recorded.
+
+    Two failure modes are handled rather than raised: a reasoning model burning its whole
+    budget before producing output, and an older model rejecting reasoning_effort.
+    """
+    kwargs: dict = {
+        "model": model,
+        "messages": messages,
+        "max_completion_tokens": completion_budget(model, max_completion_tokens),
+        **extra,
+    }
+    # classification does not benefit from long deliberation, and reasoning tokens are billed
+    if low_effort and model.startswith(REASONING_PREFIXES):
+        kwargs["reasoning_effort"] = "low"
+
+    bumped = False
+    resp = None
+    for _ in range(3):
+        try:
+            resp = await openai_client().chat.completions.create(**kwargs)
+            break
+        except Exception as e:
+            message = str(e).lower()
+            if "reasoning_effort" in kwargs and "reasoning_effort" in message:
+                kwargs.pop("reasoning_effort")   # model predates the parameter
+                continue
+            if _is_token_limit_error(e) and not bumped:
+                bumped = True
+                kwargs["max_completion_tokens"] = max(
+                    kwargs["max_completion_tokens"] * 3, REASONING_MIN_TOKENS * 2)
+                log.warning("%s hit its output limit on %s — retrying with %s tokens",
+                            model, purpose, kwargs["max_completion_tokens"])
+                continue
+            raise
+    if resp is None:
+        raise RuntimeError(f"{model} could not complete {purpose}")
+    if resp.usage:
+        await record_usage("openai", model, purpose,
+                           resp.usage.prompt_tokens, resp.usage.completion_tokens)
+    return resp
 
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -89,14 +157,14 @@ async def openai_json(
     *, model: str, system: str, user: str, purpose: str, max_completion_tokens: int = 600,
 ) -> dict:
     """Cheap-model structured classification. Returns parsed JSON (empty dict on failure)."""
-    resp = await openai_client().chat.completions.create(
+    resp = await _chat_completion(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        response_format={"type": "json_object"},
+        purpose=purpose,
         max_completion_tokens=max_completion_tokens,
+        low_effort=True,          # every openai_json caller is a classifier
+        response_format={"type": "json_object"},
     )
-    if resp.usage:
-        await record_usage("openai", model, purpose, resp.usage.prompt_tokens, resp.usage.completion_tokens)
     try:
         return json.loads(resp.choices[0].message.content or "{}")
     except json.JSONDecodeError:
@@ -108,24 +176,19 @@ async def openai_chat(
     *, model: str, messages: list[dict], purpose: str, max_completion_tokens: int = 1500,
 ) -> str:
     """History-aware chat completion on the cheap tier."""
-    resp = await openai_client().chat.completions.create(
-        model=model, messages=messages, max_completion_tokens=max_completion_tokens,
-    )
-    if resp.usage:
-        await record_usage("openai", model, purpose, resp.usage.prompt_tokens, resp.usage.completion_tokens)
+    resp = await _chat_completion(
+        model=model, messages=messages, purpose=purpose,
+        max_completion_tokens=max_completion_tokens)
     return resp.choices[0].message.content or ""
 
 
 async def openai_text(
     *, model: str, system: str, user: str, purpose: str, max_completion_tokens: int = 1500,
 ) -> str:
-    resp = await openai_client().chat.completions.create(
+    resp = await _chat_completion(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        max_completion_tokens=max_completion_tokens,
-    )
-    if resp.usage:
-        await record_usage("openai", model, purpose, resp.usage.prompt_tokens, resp.usage.completion_tokens)
+        purpose=purpose, max_completion_tokens=max_completion_tokens)
     return resp.choices[0].message.content or ""
 
 
@@ -267,17 +330,10 @@ async def agent_tools(*, system: str, messages: list[dict], tools: list[dict],
         return AgentReply(text=text, tool_calls=calls,
                           stop_reason="tool_use" if calls else "end")
 
-    kwargs: dict = {
-        "model": chosen,
-        "messages": to_openai_messages(messages, system),
-        "max_completion_tokens": max_tokens,
-    }
-    if tools:
-        kwargs["tools"] = tools_to_openai(tools)
-    resp = await openai_client().chat.completions.create(**kwargs)
-    if resp.usage:
-        await record_usage("openai", chosen, purpose,
-                           resp.usage.prompt_tokens, resp.usage.completion_tokens)
+    extra: dict = {"tools": tools_to_openai(tools)} if tools else {}
+    resp = await _chat_completion(
+        model=chosen, messages=to_openai_messages(messages, system),
+        purpose=purpose, max_completion_tokens=max_tokens, **extra)
     choice = resp.choices[0].message
     calls = []
     for call in (choice.tool_calls or []):

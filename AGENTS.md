@@ -66,6 +66,12 @@ ruff check src tests scripts
   never trust LLM output as Telegram markup.
 - Every LLM call goes through `src/inais/llm.py` so usage/cost lands in `llm_usage`. Give each
   call a `purpose` — the autonomy budget and `/usage` group by it.
+- OpenAI chat calls go through `llm._chat_completion`: it floors `max_completion_tokens` for
+  reasoning models (GPT-5/o-series spend hidden reasoning tokens from the SAME budget, so a
+  60-token classifier budget 400s), sets `reasoning_effort=low` for classifiers, and retries
+  once on an output-limit error. Never call `chat.completions.create` directly.
+- New model families need a `PRICES_PER_MTOK` entry or `/usage` silently reports $0. Prefix
+  matching is first-match, so specific ids (`gpt-5-mini`) must come BEFORE generic (`gpt-5`).
 - Agent calls use the provider-neutral API — `llm.agent_text` (system+user → text) and
   `llm.agent_tools` (a tool-loop turn). Both follow `BRAIN_PROVIDER`, so the assistant runs
   on Anthropic or OpenAI with no caller changes. Do NOT call `anthropic_message` directly in

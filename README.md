@@ -470,6 +470,11 @@ routing model, the Anthropic agent model and embeddings separately, and prints e
 provider's own error. A wrong model id in `AGENT_MODEL`/`TRIAGE_MODEL` and an invalid key
 look identical until you see the message.
 
+**"Could not finish the message because max_tokens... was reached"** — fixed in code. GPT-5
+and o-series models spend invisible reasoning tokens from the same budget as the reply, so
+small budgets fail outright. Requests to those models are floored at 2000 tokens,
+classifiers ask for low reasoning effort, and an output-limit error retries once with more.
+
 **Deploy loops or exits with status 1.** Check the Render logs for a line starting
 `DATABASE DISABLED` or `INAIS is PAUSED`. Genuine crashes now only come from a missing
 `TELEGRAM_BOT_TOKEN` or `OWNER_TELEGRAM_ID` — everything else degrades to a warning.
