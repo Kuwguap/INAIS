@@ -84,3 +84,33 @@ def test_parse_google_cse_survives_empty_responses():
     """CSE omits `items` entirely when there are no results."""
     assert parse_google_cse({}) == []
     assert parse_google_cse({"searchInformation": {"totalResults": "0"}}) == []
+
+
+# ---------- DNS pinning (SSRF wave 2) ----------
+
+def test_pinned_resolver_only_answers_for_its_host():
+    import asyncio
+    import socket
+
+    from inais.integrations.fetch import _PinnedResolver
+
+    resolver = _PinnedResolver("example.com", [(socket.AF_INET, "93.184.216.34")])
+    results = asyncio.run(resolver.resolve("example.com", 443, socket.AF_UNSPEC))
+    assert results[0]["host"] == "93.184.216.34"
+    assert results[0]["hostname"] == "example.com"   # SNI/cert checks keep the real name
+    try:
+        asyncio.run(resolver.resolve("evil.example.net", 443))
+        raise AssertionError("should have refused a different host")
+    except OSError:
+        pass
+
+
+def test_fetch_validates_every_redirect_hop():
+    import inspect
+
+    from inais.integrations import fetch
+
+    source = inspect.getsource(fetch.fetch_page)
+    assert "_resolve_public" in source
+    assert "_PinnedResolver" in source
+    assert "allow_redirects=False" in source

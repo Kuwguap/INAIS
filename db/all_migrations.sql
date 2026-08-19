@@ -1,4 +1,4 @@
--- INAIS — complete schema (migrations 001-020)
+-- INAIS — complete schema (migrations 001-022)
 -- Paste into the Supabase SQL editor and run once. Idempotent; safe to re-run.
 
 create extension if not exists vector;
@@ -767,6 +767,21 @@ alter table reminders add column if not exists message_id bigint;
 create index if not exists reminders_nag_idx on reminders (nag_at)
     where not acknowledged;
 
+-- ==================== 021_engagement_backfill.sql ====================
+-- Rows logged before reply-tracking existed have replied = null because nothing ever
+-- watched for their replies — harvesting them as "no reply" would fabricate negative
+-- engagement examples out of ignorance. Mark history as already harvested; only messages
+-- sent under tracking become training data.
+
+update proactive_log set harvested = true where replied is null and not harvested;
+
+-- ==================== 022_reminder_lifecycle.sql ====================
+-- last_fired_at: when the alarm actually rang. fire_at cannot serve that role because a
+-- recurring reminder's fire_at is re-armed to the NEXT occurrence while it is still ringing,
+-- which made typed-stop pick the wrong reminder to silence.
+
+alter table reminders add column if not exists last_fired_at timestamptz;
+
 -- ==================== bookkeeping ====================
 create table if not exists schema_migrations (
     filename   text primary key,
@@ -792,7 +807,9 @@ insert into schema_migrations (filename) values
     ('017_journal.sql'),
     ('018_persona.sql'),
     ('019_engagement.sql'),
-    ('020_alarm.sql')
+    ('020_alarm.sql'),
+    ('021_engagement_backfill.sql'),
+    ('022_reminder_lifecycle.sql')
 on conflict do nothing;
 
 select count(*) as tables_created from information_schema.tables where table_schema = 'public';

@@ -60,7 +60,7 @@ async def route(text: str, vec: list[float] | None = None) -> Route:
         local = await nn.classify_route(vec)
         if local is not None:
             agent, confidence = local
-            hardness = await nn.score("complexity", text)
+            hardness = await nn.score("complexity", text, embedding=vec)
             if hardness is not None:
                 complexity = "complex" if hardness >= 0.5 else "simple"
                 return Route(agent, complexity, f"local-nn({confidence:.2f})")
@@ -71,7 +71,7 @@ async def route(text: str, vec: list[float] | None = None) -> Route:
         model=settings().triage_model,
         system=(
             "Classify the user's message for a personal assistant. Return JSON "
-            '{"agent": "finance|email|study", "complexity": "simple|complex"}.\n'
+            '{"agent": "finance|email|study|planner", "complexity": "simple|complex"}.\n'
             "- finance: crypto portfolio, Binance, money, budgeting\n"
             "- email: reading/searching/replying to the user's Gmail\n"
             "- study: everything else (questions, coding, studying, chat)\n"

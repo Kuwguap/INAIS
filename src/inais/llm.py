@@ -91,6 +91,10 @@ async def _chat_completion(*, model: str, messages: list[dict], purpose: str,
                        and not choice.message.tool_calls)
             if starved and not bumped:
                 bumped = True
+                if resp.usage:  # the burned attempt was a completed, billed API call
+                    await record_usage("openai", model, purpose,
+                                       resp.usage.prompt_tokens,
+                                       resp.usage.completion_tokens)
                 kwargs["max_completion_tokens"] *= 3
                 log.warning("%s returned nothing on %s (spent its budget reasoning) — "
                             "retrying with %s tokens", model, purpose,
@@ -373,14 +377,30 @@ def _switch_to_openai(reason: str) -> bool:
     return True
 
 
+def _for_provider(model: str | None, provider: str) -> str | None:
+    """Translate a caller-supplied model to the live provider's equivalent tier.
+
+    Callers cache model choices from config (swarm passes resolved_subagent_model), so after
+    an auto-switch a Claude id can arrive while OpenAI is live — which the API rejects.
+    """
+    if not model:
+        return None
+    cfg = settings()
+    if provider == "openai" and model.startswith("claude"):
+        return cfg.triage_model if "haiku" in model else cfg.openai_agent_model
+    if provider == "anthropic" and (model.startswith("gpt") or model.startswith("o")):
+        return cfg.subagent_model if "mini" in model or "nano" in model else cfg.agent_model
+    return model
+
+
 async def agent_tools(*, system: str, messages: list[dict], tools: list[dict],
                       max_tokens: int = 2048, purpose: str = "agent",
                       model: str | None = None) -> AgentReply:
     """One turn of a tool-using agent loop, on whichever provider is in use."""
     cfg = settings()
     provider = effective_provider()
-    chosen = model or (cfg.openai_agent_model if provider == "openai"
-                       else cfg.resolved_agent_model)
+    chosen = _for_provider(model, provider) or (
+        cfg.openai_agent_model if provider == "openai" else cfg.resolved_agent_model)
 
     if provider == "anthropic":
         try:
@@ -390,7 +410,7 @@ async def agent_tools(*, system: str, messages: list[dict], tools: list[dict],
         except Exception as e:
             if not (_anthropic_is_unusable(e) and _switch_to_openai(str(e)[:150])):
                 raise
-            chosen = model or cfg.openai_agent_model   # fall through to OpenAI below
+            chosen = _for_provider(model, "openai") or cfg.openai_agent_model
 
     extra: dict = {"tools": tools_to_openai(tools)} if tools else {}
     resp = await _chat_completion(

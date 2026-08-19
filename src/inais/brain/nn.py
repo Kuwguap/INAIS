@@ -311,9 +311,12 @@ def invalidate_cache(model_name: str | None = None) -> None:
             _router_cache = False
 
 
-async def score(model_name: str, text: str,
-                context: list[float] | None = None) -> float | None:
-    """Predicted probability for one text (+ context), or None if no model is trustworthy."""
+async def score(model_name: str, text: str, context: list[float] | None = None,
+                embedding: list[float] | None = None) -> float | None:
+    """Predicted probability for one text (+ context), or None if no model is trustworthy.
+
+    Pass `embedding` to reuse a vector the caller already paid for — the local-router path
+    exists to avoid cloud calls, so it must not trigger a second embed of the same text."""
     cfg = settings()
     if not cfg.nn_enabled or db.pool() is None:
         return None
@@ -326,8 +329,8 @@ async def score(model_name: str, text: str,
     if float(metrics.get("cv_auc", 0.0)) < MIN_USABLE_AUC:
         return None  # not yet better than guessing — don't let it steer anything
     try:
-        vec = np.array(list(await llm.embed(text)) + [float(v) for v in (context or [])],
-                       dtype=float)
+        base = embedding if embedding is not None else await llm.embed(text)
+        vec = np.array(list(base) + [float(v) for v in (context or [])], dtype=float)
     except Exception:
         log.exception("scoring embed failed")
         return None
@@ -352,20 +355,25 @@ async def train(model_name: str) -> str:
     if len(np.unique(y > 0.5)) < 2:
         return f"{model_name}: {n} examples but only one class — need positives and negatives."
 
-    rng = np.random.default_rng(7)
-    perm = rng.permutation(n)
-    x, y, w = x[perm], y[perm], w[perm]
+    def _train_sync():
+        # minutes of pure numpy on thousands of rows — this must NOT run on the event loop,
+        # or the 30s reminder tick and webhook ACKs stall for the whole training run
+        rng = np.random.default_rng(7)
+        perm = rng.permutation(n)
+        xs, ys, ws = x[perm], y[perm], w[perm]
+        results = []
+        for hidden in candidate_architectures(n, cfg.nn_hidden_dim):
+            cv = cross_val_auc(xs, ys, ws, hidden)
+            results.append((cv, hidden))
+            log.info("%s: hidden=%s cv_auc=%.3f", model_name, hidden, cv)
+        best_cv, best_h = max(results)
+        model = MLP(input_dim=xs.shape[1], hidden_dim=best_h)
+        fit_loss = model.fit(xs, ys, ws)
+        return results, best_cv, best_h, model, fit_loss, auc(ys, model.predict(xs))
 
-    results: list[tuple[float, int]] = []
-    for hidden in candidate_architectures(n, cfg.nn_hidden_dim):
-        cv = cross_val_auc(x, y, w, hidden)
-        results.append((cv, hidden))
-        log.info("%s: hidden=%s cv_auc=%.3f", model_name, hidden, cv)
-    best_auc, best_hidden = max(results)
+    import asyncio
 
-    net = MLP(input_dim=x.shape[1], hidden_dim=best_hidden)
-    loss = net.fit(x, y, w)
-    in_sample = auc(y, net.predict(x))
+    results, best_auc, best_hidden, net, loss, in_sample = await asyncio.to_thread(_train_sync)
     metrics = {
         "cv_auc": round(best_auc, 4),
         "cv_folds": min(CV_FOLDS, max(2, n // 10 or 2)),
@@ -638,15 +646,19 @@ async def train_router(classes: tuple[str, ...]) -> str:
     if len(np.unique(y.astype(int))) < 2:
         return f"router: {n} examples but only one agent seen."
 
-    rng = np.random.default_rng(7)
-    perm = rng.permutation(n)
-    x, y = x[perm], y[perm]
-    results = [(softmax_cv_accuracy(x, y, len(classes), h), h)
-               for h in candidate_architectures(n, cfg.nn_hidden_dim)]
-    best_acc, best_hidden = max(results)
+    def _train_sync():
+        rng = np.random.default_rng(7)
+        perm = rng.permutation(n)
+        xs, ys = x[perm], y[perm]
+        results = [(softmax_cv_accuracy(xs, ys, len(classes), h), h)
+                   for h in candidate_architectures(n, cfg.nn_hidden_dim)]
+        best, hidden = max(results)
+        model = SoftmaxNet(xs.shape[1], len(classes), hidden)
+        return best, hidden, model, model.fit(xs, ys)
 
-    net = SoftmaxNet(x.shape[1], len(classes), best_hidden)
-    loss = net.fit(x, y)
+    import asyncio
+
+    best_acc, best_hidden, net, loss = await asyncio.to_thread(_train_sync)
     metrics = {"cv_acc": round(best_acc, 4), "n": int(n), "hidden_dim": best_hidden,
                "classes": list(classes), "train_loss": round(float(loss), 4)}
 

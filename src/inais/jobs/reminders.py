@@ -72,44 +72,69 @@ async def _ping_burst(bot, chat_id: int, label: str) -> None:
 
 
 async def deliver_due(bot) -> int:
-    """Fire every reminder whose time has come. Returns how many fired."""
-    from inais.bot import keyboards  # late import (bot package imports jobs indirectly)
+    """Fire every reminder whose time has come. Returns how many fired.
 
+    The whole state transition — claim, arm the nag machine, re-arm a recurring fire_at —
+    happens in ONE transaction per row, so a crash at any point either leaves the row
+    unclaimed (retried next tick) or fully armed. The old batch shape claimed ten rows
+    up front and then mutated them one by one: a mid-batch error stranded the rest as
+    fired-but-never-sent, matching no query in the codebase, forever.
+
+    The Telegram sends happen after commit. A failed send is not a lost reminder: the nag
+    machine is armed and treats a missing message_id as "the reminder itself still needs
+    delivering" (see nag_unacknowledged).
+    """
     p = db.pool()
     if p is None:
         return 0
     cfg = settings()
-    # claim atomically so a slow send can't double-fire on the next tick
-    rows = await p.fetch(
-        "update reminders set fired = true"
-        " where id in (select id from reminders where not fired and fire_at <= now()"
-        "              order by fire_at limit 10 for update skip locked)"
-        " returning id, text, fire_at, recurring_cron",
-    )
-    owner = cfg.owner_telegram_id
-    for r in rows:
-        message_id = None
-        try:
-            msg = await bot.send_message(
-                owner, f"⏰ {r['text']}",
-                reply_markup=keyboards.reminder_stop_kb(r["id"]))
-            message_id = msg.message_id
-        except Exception:
-            log.exception("failed to deliver reminder %s", r["id"])
-        await p.execute(
-            "update reminders set acknowledged = false, nag_count = 0, message_id = $1,"
-            " nag_at = now() + $2 where id = $3",
-            message_id, next_nag_delay(0, cfg.reminder_nag_minutes), r["id"],
-        )
-        await _ping_burst(bot, owner, r["text"])
-        if r["recurring_cron"]:
-            nxt = next_cron_fire(r["recurring_cron"])
-            if nxt is not None:
-                await p.execute(
-                    "update reminders set fired = false, fire_at = $1 where id = $2",
-                    nxt, r["id"],
+    fired: list[dict] = []
+    async with p.acquire() as conn:
+        for _ in range(10):  # per-tick cap
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "select id, text, recurring_cron from reminders"
+                    " where not fired and fire_at <= now()"
+                    " order by fire_at limit 1 for update skip locked")
+                if row is None:
+                    break
+                nxt = (next_cron_fire(row["recurring_cron"])
+                       if row["recurring_cron"] else None)
+                await conn.execute(
+                    "update reminders set"
+                    " fired = $1, fire_at = coalesce($2, fire_at),"
+                    " acknowledged = false, nag_count = 0, message_id = null,"
+                    " nag_at = now() + $3, last_fired_at = now()"
+                    " where id = $4",
+                    nxt is None,          # recurring stays fireable at its next slot
+                    nxt,
+                    next_nag_delay(0, cfg.reminder_nag_minutes),
+                    row["id"],
                 )
-    return len(rows)
+            fired.append(dict(row))
+
+    owner = cfg.owner_telegram_id
+    for r in fired:
+        await _send_reminder(bot, owner, r["id"], r["text"])
+        await _ping_burst(bot, owner, r["text"])
+    return len(fired)
+
+
+async def _send_reminder(bot, owner: int, reminder_id: int, text: str) -> bool:
+    """Send the durable reminder message and record its id. False on failure."""
+    from inais.bot import keyboards  # late import (bot package imports jobs indirectly)
+
+    p = db.pool()
+    try:
+        msg = await bot.send_message(
+            owner, f"⏰ {text}", reply_markup=keyboards.reminder_stop_kb(reminder_id))
+    except Exception:
+        log.exception("failed to deliver reminder %s — nag pass will retry", reminder_id)
+        return False
+    if p is not None:
+        await p.execute("update reminders set message_id = $1 where id = $2",
+                        msg.message_id, reminder_id)
+    return True
 
 
 async def nag_unacknowledged(bot) -> int:
@@ -130,15 +155,22 @@ async def nag_unacknowledged(bot) -> int:
             await p.execute(
                 "update reminders set acknowledged = true, nag_at = null where id = $1",
                 r["id"])
-            if r["message_id"]:
-                try:
-                    await bot.edit_message_text(
-                        f"⏰ {r['text']}\n\n(no response after "
-                        f"{cfg.reminder_max_nags} re-pings — stopped reminding)",
-                        chat_id=owner, message_id=r["message_id"])
-                except Exception:
-                    log.debug("could not edit reminder %s on give-up", r["id"])
+            farewell = (f"⏰ {r['text']}\n\n(no response after "
+                        f"{cfg.reminder_max_nags} re-pings — stopped reminding)")
+            try:
+                if r["message_id"]:
+                    await bot.edit_message_text(farewell, chat_id=owner,
+                                                message_id=r["message_id"])
+                else:
+                    # the durable message never made it out; the farewell must, or the
+                    # reminder's content was never delivered at all
+                    await bot.send_message(owner, farewell)
+            except Exception:
+                log.debug("could not close out reminder %s", r["id"])
             continue
+        if not r["message_id"]:
+            # the initial send failed — this nag IS the delivery retry, buttons and all
+            await _send_reminder(bot, owner, r["id"], r["text"])
         await _ping_burst(bot, owner, r["text"])
         nagged += 1
         await p.execute(
@@ -166,10 +198,12 @@ async def acknowledge_latest() -> dict | None:
     p = db.pool()
     if p is None:
         return None
+    # order by when it actually RANG: a recurring reminder's fire_at is already re-armed
+    # to the next occurrence while it rings, so fire_at would pick the wrong one
     row = await p.fetchrow(
         "update reminders set acknowledged = true, nag_at = null"
         " where id = (select id from reminders where not acknowledged"
-        "             order by fire_at desc limit 1)"
+        "             order by last_fired_at desc nulls last limit 1)"
         " returning id, text, message_id")
     return dict(row) if row else None
 

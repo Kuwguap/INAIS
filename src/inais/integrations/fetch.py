@@ -15,6 +15,7 @@ import asyncio
 import html
 import ipaddress
 import logging
+import socket
 import re
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
@@ -61,12 +62,17 @@ def ip_is_forbidden(ip: str) -> bool:
             or addr.is_multicast or addr.is_unspecified)
 
 
-async def _assert_public(url: str) -> None:
-    """SSRF guard: the URL must be http(s) and every resolved address must be public.
+async def _resolve_public(url: str) -> list[tuple[int, str]]:
+    """SSRF guard: validate the URL and return its resolved (family, ip) pairs.
 
     The fetcher runs server-side with the platform's network access; without this, a
     forwarded link (or a redirect from one) could read localhost services or the cloud
     metadata endpoint and feed the result back into chat as an "article".
+
+    Returning the addresses matters as much as checking them: the actual connection is then
+    PINNED to these exact IPs. Validating and letting the HTTP client re-resolve the
+    hostname would leave a DNS-rebinding window — public at check time, 127.0.0.1 a second
+    later.
     """
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
@@ -75,12 +81,40 @@ async def _assert_public(url: str) -> None:
     if not host:
         raise FetchError("that URL has no host")
     try:
-        infos = await asyncio.get_running_loop().getaddrinfo(host, parts.port or 80)
+        infos = await asyncio.get_running_loop().getaddrinfo(
+            host, parts.port or (443 if parts.scheme == "https" else 80),
+            type=socket.SOCK_STREAM)
     except OSError as e:
         raise FetchError(f"couldn't resolve {host}") from e
-    addresses = {info[4][0] for info in infos}
-    if not addresses or any(ip_is_forbidden(ip) for ip in addresses):
+    pairs = [(info[0], info[4][0]) for info in infos]
+    if not pairs or any(ip_is_forbidden(ip) for _, ip in pairs):
         raise FetchError("that address isn't reachable from here")
+    return pairs
+
+
+class _PinnedResolver(aiohttp.abc.AbstractResolver):
+    """Resolves exactly one host to the addresses we already validated — nothing else."""
+
+    def __init__(self, host: str, pairs: list[tuple[int, str]]) -> None:
+        self._host = host
+        self._pairs = pairs
+
+    async def resolve(self, host: str, port: int = 0, family: int = socket.AF_INET) -> list:
+        if host != self._host:
+            raise OSError(f"unexpected host {host}")
+        return [
+            {"hostname": self._host, "host": ip, "port": port,
+             "family": fam, "proto": 0, "flags": 0}
+            for fam, ip in self._pairs
+            if family in (0, socket.AF_UNSPEC, fam)
+        ] or [
+            {"hostname": self._host, "host": ip, "port": port,
+             "family": fam, "proto": 0, "flags": 0}
+            for fam, ip in self._pairs
+        ]
+
+    async def close(self) -> None:
+        return None
 
 
 @dataclass
@@ -150,12 +184,15 @@ async def fetch_page(url: str) -> Page:
     if not URL_RE.fullmatch(url):
         raise FetchError("that doesn't look like a URL")
     try:
-        async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
-            # follow redirects by hand so EVERY hop is validated, not just the first —
-            # a public page redirecting to an internal address is the classic SSRF path
-            current = url
-            for _ in range(MAX_REDIRECTS + 1):
-                await _assert_public(current)
+        # follow redirects by hand so EVERY hop is validated, not just the first — and
+        # connect each hop through a resolver pinned to the addresses that were validated,
+        # so a rebinding DNS record can't swap in a private IP between check and connect
+        current = url
+        for _ in range(MAX_REDIRECTS + 1):
+            pairs = await _resolve_public(current)
+            host = urlsplit(current).hostname or ""
+            connector = aiohttp.TCPConnector(resolver=_PinnedResolver(host, pairs))
+            async with aiohttp.ClientSession(timeout=TIMEOUT, connector=connector) as session:
                 async with session.get(current, headers={"User-Agent": USER_AGENT},
                                        allow_redirects=False) as resp:
                     if resp.status in (301, 302, 303, 307, 308):
@@ -174,8 +211,8 @@ async def fetch_page(url: str) -> Page:
                     raw = await resp.content.read(MAX_BYTES)
                     final_url = current
                     break
-            else:
-                raise FetchError("too many redirects")
+        else:
+            raise FetchError("too many redirects")
     except aiohttp.ClientError as e:
         raise FetchError(f"couldn't reach it ({type(e).__name__})") from e
     except TimeoutError as e:

@@ -47,3 +47,26 @@ def test_stop_phrases_are_recognised(text):
 ])
 def test_ordinary_sentences_are_not_stop_commands(text):
     assert not is_stop_text(text)
+
+
+def test_send_reminder_and_nag_retry_are_wired():
+    """A failed initial send must be retried by the nag pass, not treated as delivered."""
+    import inspect
+
+    from inais.jobs import reminders
+
+    nag_source = inspect.getsource(reminders.nag_unacknowledged)
+    assert "_send_reminder" in nag_source          # nag retries the durable message
+    deliver_source = inspect.getsource(reminders.deliver_due)
+    assert "conn.transaction()" in deliver_source  # claim + arm is one atomic step
+    assert "for update skip locked" in deliver_source
+
+
+def test_typed_stop_orders_by_actual_ring_time():
+    import inspect
+
+    from inais.jobs import reminders
+
+    source = inspect.getsource(reminders.acknowledge_latest)
+    assert "last_fired_at desc" in source
+    assert "fire_at desc" not in source
