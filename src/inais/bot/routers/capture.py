@@ -119,7 +119,7 @@ async def on_journal_voice(message: Message, state: FSMContext) -> None:
         await _store(message, transcript, source="voice")
 
 
-@router.message(Journal.waiting_entry, F.text)
+@router.message(Journal.waiting_entry, F.text & ~F.text.startswith("/"))
 async def on_journal_text(message: Message, state: FSMContext) -> None:
     await state.clear()
     await _store(message, message.text or "", source="text")

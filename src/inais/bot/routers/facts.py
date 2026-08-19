@@ -132,7 +132,7 @@ async def on_fix_cancel(message: Message, state: FSMContext) -> None:
     await message.answer("Left it unchanged.")
 
 
-@router.message(FixFact.waiting_statement, F.text)
+@router.message(FixFact.waiting_statement, F.text & ~F.text.startswith("/"))
 async def on_fix_statement(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()

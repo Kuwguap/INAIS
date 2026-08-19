@@ -201,13 +201,15 @@ async def cmd_learned(message: Message) -> None:
 
 @router.message(Command("learn"))
 async def cmd_learn(message: Message) -> None:
-    if not settings().learning_enabled:
-        await message.answer("Autonomous learning is off. Set LEARNING_ENABLED=true to let me "
-                             "research things on my own while you're away.")
-        return
+    # /learn is an explicit request, so it runs even when the AUTOMATIC background loop
+    # (LEARNING_ENABLED) is off — that flag only governs unattended scouting.
+    note = ("" if settings().learning_enabled else
+            "\n\n(Background learning is off — this was a one-off. "
+            "Set LEARNING_ENABLED=true to let me do this on my own.)")
     await message.answer("🔎 Going off to learn something…")
     try:
         result = await autonomy.run_cycle(message.bot, force=True)
+        result += note
     except Exception:
         log.exception("manual learning cycle failed")
         result = "The learning cycle failed — check the logs."

@@ -6,6 +6,7 @@ from aiogram import Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from inais.bot.middleware import DedupeMiddleware, OwnerOnlyMiddleware
+from inais.bot.middleware_commands import CommandEscapesStateMiddleware
 from inais.bot.routers import (
     alarms, approvals, capture, chat, commands, drills, facts, learning, menu,
     study, tracking, vision, voice,
@@ -16,6 +17,7 @@ def create_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.outer_middleware(DedupeMiddleware())
     dp.update.outer_middleware(OwnerOnlyMiddleware())
+    dp.message.middleware(CommandEscapesStateMiddleware())  # commands escape FSM flows
     # FSM-owning routers first (their states must win over plain chat), then commands,
     # then study (documents/quizzes), learning feedback, voice, and finally free chat.
     dp.include_router(alarms.router)   # 'stop' must beat the brain when an alarm rings

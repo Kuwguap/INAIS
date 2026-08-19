@@ -188,7 +188,7 @@ async def on_review_voice(message: Message, state: FSMContext) -> None:
         await _deliver_review(message, transcript, data.get("hint"))
 
 
-@router.message(StudyReview.waiting_dump, F.text)
+@router.message(StudyReview.waiting_dump, F.text & ~F.text.startswith("/"))
 async def on_review_text(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()

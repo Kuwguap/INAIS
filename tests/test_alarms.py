@@ -70,3 +70,11 @@ def test_typed_stop_orders_by_actual_ring_time():
     source = inspect.getsource(reminders.acknowledge_latest)
     assert "last_fired_at desc" in source
     assert "fire_at desc" not in source
+
+
+def test_fact_dedup_threshold_is_a_near_match():
+    """The threshold must reject near-identical restatements without merging distinct facts."""
+    from inais.memory.store import _FACT_DUP_DISTANCE
+
+    # inner-product distance for unit vectors is -cosine; -0.93 ≈ 0.93 cosine similarity
+    assert -1.0 <= _FACT_DUP_DISTANCE <= -0.85

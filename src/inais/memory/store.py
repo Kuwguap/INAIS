@@ -75,16 +75,31 @@ async def mark_reset(chat_id: int) -> None:
 
 # ---------- semantic ----------
 
+# Inner-product distance below this (pgvector `<#>`, i.e. -cos_sim for unit vectors) means the
+# two facts say the same thing. Reflection restates facts slightly differently each night, so
+# an exact-string unique index let near-duplicates pile up ("INAIS stands for…" ×3).
+_FACT_DUP_DISTANCE = -0.93
+
+
 async def add_fact(statement: str, category: str = "general", confidence: float = 0.8,
-                   source_message_id: int | None = None) -> int | None:
+                   source_message_id: int | None = None, dedup: bool = True) -> int | None:
     p = db.pool()
     if p is None:
         return None
     vec = await llm.embed(statement)
+    literal = llm.vec_literal(vec)
+    if dedup:
+        near = await p.fetchrow(
+            "select id, embedding <#> $1::vector as dist from facts"
+            " where superseded_by is null and deleted_at is null and embedding is not null"
+            " order by embedding <#> $1::vector limit 1", literal)
+        if near is not None and near["dist"] is not None and near["dist"] <= _FACT_DUP_DISTANCE:
+            log.info("skipped near-duplicate fact (#%s): %.60s", near["id"], statement)
+            return near["id"]   # the existing near-identical fact stands
     row = await p.fetchrow(
         "insert into facts (category, statement, embedding, confidence, source_message_id)"
         " values ($1, $2, $3::vector, $4, $5) returning id",
-        category, statement, llm.vec_literal(vec), confidence, source_message_id,
+        category, statement, literal, confidence, source_message_id,
     )
     return row["id"]
 
@@ -94,7 +109,7 @@ async def supersede_fact(old_id: int, replacement: str, category: str = "general
     p = db.pool()
     if p is None:
         return None
-    new_id = await add_fact(replacement, category, confidence)
+    new_id = await add_fact(replacement, category, confidence, dedup=False)
     if new_id is not None:
         await p.execute("update facts set superseded_by = $1 where id = $2", new_id, old_id)
     return new_id

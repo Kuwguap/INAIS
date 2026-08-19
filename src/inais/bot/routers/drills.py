@@ -189,7 +189,7 @@ async def on_drill_voice(message: Message, state: FSMContext) -> None:
         await _grade_and_reply(message, state, data, transcript)
 
 
-@router.message(Drill.waiting_answer, F.text)
+@router.message(Drill.waiting_answer, F.text & ~F.text.startswith("/"))
 async def on_drill_text(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     async with typing_indicator(message.bot, message.chat.id):

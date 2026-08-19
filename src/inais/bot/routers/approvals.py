@@ -122,7 +122,7 @@ async def on_edit_cancel(message: Message, state: FSMContext) -> None:
     await message.answer("Edit cancelled — the draft is unchanged.")
 
 
-@router.message(EditDraft.waiting_body, F.text)
+@router.message(EditDraft.waiting_body, F.text & ~F.text.startswith("/"))
 async def on_edit_body(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()
