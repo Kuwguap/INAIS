@@ -109,9 +109,39 @@ async def run_web(bot: Bot, dp: Dispatcher) -> None:
     async def healthz(request: web.Request) -> web.Response:
         return web.Response(text="ok")
 
+    async def oauth_callback(request: web.Request) -> web.Response:
+        """Public endpoint. Everything here is untrusted until the state signature checks out."""
+        from inais.integrations import google_oauth
+
+        if not google_oauth.verify_state(request.query.get("state", "")):
+            log.warning("oauth callback with a bad or expired state")
+            return web.Response(status=400, text="Expired or invalid link. Send /connect again.")
+        error = request.query.get("error")
+        if error:
+            return web.Response(text=f"Google returned: {error}. You can close this tab.")
+        code = request.query.get("code", "")
+        if not code:
+            return web.Response(status=400, text="No authorization code. Send /connect again.")
+        try:
+            email, refresh_token = await google_oauth.exchange(code)
+            await google_oauth.store_account(email, refresh_token)
+        except Exception as e:
+            log.exception("oauth exchange failed")
+            _spawn(bot.send_message(cfg.owner_telegram_id, f"❌ Gmail connection failed: {e}"))
+            return web.Response(status=500, text=f"Connection failed: {e}")
+        _spawn(bot.send_message(
+            cfg.owner_telegram_id,
+            f"✅ Connected {email}. I'll baseline the mailbox on the next poll and start "
+            f"flagging important mail."))
+        return web.Response(
+            content_type="text/html",
+            text=f"<h2>Connected {email}</h2><p>Done — - you can close this tab and go back "
+                 f"to Telegram.</p>")
+
     app = web.Application()
     app.router.add_post(f"/wh/{cfg.webhook_path}", handle_webhook)
     app.router.add_get("/healthz", healthz)
+    app.router.add_get("/oauth/callback", oauth_callback)
     app.router.add_get("/", healthz)
 
     runner = web.AppRunner(app)

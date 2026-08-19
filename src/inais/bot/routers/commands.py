@@ -430,3 +430,27 @@ async def cmd_weekly(message: Message) -> None:
         text = None
     for chunk in split_message(text or "Not enough activity this week to review yet."):
         await message.answer(chunk)
+
+
+@router.message(Command("connect"))
+async def cmd_connect(message: Message) -> None:
+    """Authorize a Google account by tapping a link — no laptop, no script."""
+    from inais.integrations import google_oauth
+
+    ready, reason = google_oauth.configured()
+    if not ready:
+        await message.answer(f"Can't start the Google sign-in yet.\n\n{reason}")
+        return
+    try:
+        url = google_oauth.auth_url()
+    except Exception as e:
+        log.exception("/connect failed to build the auth url")
+        await message.answer(f"Couldn't build the sign-in link: {type(e).__name__}: {e}")
+        return
+    scopes = "Gmail" + (" and Calendar" if settings().calendar_enabled else "")
+    await message.answer(
+        f"🔗 Tap to connect a Google account ({scopes}):\n\n{url}\n\n"
+        f"You'll see \"Google hasn't verified this app\" — that's expected, since it's your "
+        f"own private app. Tap Advanced → Continue.\n"
+        f"The link expires in 15 minutes.",
+        disable_web_page_preview=True)
