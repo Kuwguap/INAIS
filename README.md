@@ -15,6 +15,8 @@ A single-user assistant that lives in **Telegram** (text + voice) with a hybrid
   timetable and it goes through the same brain, so it can turn a timetable into tasks or
   explain an error from a screenshot
 - 🐙 **GitHub** — read-only watch for PRs awaiting your review, issue mentions, and red CI
+- 📄 **PDFs** — ask for a report, study notes or a cheat-sheet and it builds a real
+  PDF and sends it as a file (`create_pdf` tool, or `/export weekly`)
 - 🔗 **read it later** — forward a link; it's fetched, summarised and made searchable
 - 📓 **voice journal** — talk about your week; moods are tracked and patterns surface
 - 🤝 **contacts** — who you met, where, when you last spoke, and when to follow up

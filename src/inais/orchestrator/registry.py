@@ -6,6 +6,8 @@ Sends happen only in bot/routers/approvals.py after a human inline-keyboard tap.
 
 from __future__ import annotations
 
+import re
+
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -431,4 +433,51 @@ register_common_tool(Tool(
         "required": ["url"],
     },
     handler=_read_url,
+))
+
+
+async def _create_pdf(ctx: ToolContext, args: dict) -> str:
+    """Build a PDF from markdown content and send it to the user as a document."""
+    from aiogram.types import BufferedInputFile
+
+    from inais.integrations import pdf
+
+    title = str(args.get("title", "")).strip() or "Document"
+    body = str(args.get("content", "")).strip()
+    if not body:
+        return "Nothing to put in the PDF — give me the content."
+    subtitle = str(args.get("subtitle", "")).strip()
+    try:
+        data = pdf.build_pdf(title, body, subtitle)
+    except Exception as e:
+        log.exception("create_pdf failed")
+        return f"Couldn't build the PDF ({e}). The text is fine — send it as a message instead."
+
+    filename = re.sub(r"[^\w\- ]", "", title)[:60].strip().replace(" ", "_") or "document"
+    try:
+        await ctx.bot.send_document(
+            ctx.chat_id, BufferedInputFile(data, filename=f"{filename}.pdf"),
+            caption=f"📄 {title}")
+    except Exception as e:
+        log.exception("sending pdf failed")
+        return f"Built the PDF but couldn't send it: {e}"
+    return "PDF delivered to the user — don't repeat its full contents as text."
+
+
+register_common_tool(Tool(
+    name="create_pdf",
+    description="Turn content into a PDF and send it to the user as a downloadable file. Use "
+                "when they ask for a report, summary, study notes, cheat-sheet or any document "
+                "they'd want to keep or print. Content is markdown: # headings, - bullets, "
+                "1. numbered lists, **bold**. You CAN make and send PDFs — never say you can't.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "content": {"type": "string", "description": "Markdown body of the document."},
+            "subtitle": {"type": "string", "description": "Optional line under the title."},
+        },
+        "required": ["title", "content"],
+    },
+    handler=_create_pdf,
 ))

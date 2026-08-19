@@ -40,7 +40,7 @@ ruff check src tests scripts
 - `src/inais/agents/` — prompts + tool definitions per agent (email, finance, planner, study,
   plus `calendar_tools.py` when `CALENDAR_ENABLED`).
 - `src/inais/integrations/` — Gmail REST, Google Calendar, Binance read-only, GitHub read-only,
-  STT/TTS (ffmpeg), web search (Tavily → Brave → DuckDuckGo).
+  STT/TTS (ffmpeg), web search (Serper → … → DuckDuckGo), PDF generation (PyMuPDF Story).
 - `src/inais/memory/` — pgvector store, hybrid RRF retrieval, nightly reflection job.
 - `src/inais/study/` — PDF ingestion/chunking, exam plans, quizzes, brain-dump review.
 - `src/inais/brain/` — the growing brain: `nn.py` (NumPy network + training), `signals.py`
