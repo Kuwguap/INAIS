@@ -124,7 +124,9 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
         trace.finish(error=f"{type(e).__name__}: {e}")
         raise
 
-    reply = reply.strip() or "(no reply)"
+    reply = reply.strip() or (
+        "I came back with nothing on that one — usually the model spent its whole budget "
+        "thinking. Try rephrasing, or lower OPENAI_REASONING_EFFORT. /why shows the calls.")
     asst_msg_id = await store.save_message(chat_id, "assistant", reply)
     if asst_msg_id is not None:
         asyncio.create_task(store.embed_message(asst_msg_id, reply))

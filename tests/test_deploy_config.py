@@ -368,3 +368,11 @@ def test_assistant_text_alongside_tool_calls_is_preserved():
     assistant = to_openai_messages(case, "S")[1]
     assert assistant["content"] == "checking that now"
     assert len(assistant["tool_calls"]) == 1
+
+
+def test_status_reports_the_model_actually_in_use():
+    """Showing AGENT_MODEL while running on OpenAI made /status lie about the brain."""
+    cfg = _settings(brain_provider="openai", anthropic_api_key="k", openai_api_key="k",
+                    agent_model="claude-sonnet-5", openai_agent_model="gpt-5")
+    assert cfg.resolved_agent_model == "gpt-5"
+    assert cfg.agent_provider == "openai"

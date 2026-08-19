@@ -306,7 +306,9 @@ async def cmd_status(message: Message) -> None:
     else:
         reason = db.last_error() or "SUPABASE_DB_URL not set"
         lines.append(f"• database: OFF — {reason}")
-    lines.append(f"• brain: {'on' if cfg.brain_enabled else 'OFF'} ({cfg.agent_model})")
+    lines.append(f"• brain: {'on' if cfg.brain_enabled else 'OFF'} "
+                 f"({cfg.agent_provider}: {cfg.resolved_agent_model})")
+    lines.append(f"• routing/triage: {cfg.triage_model}")
     lines.append(f"• binance: {'on' if cfg.binance_enabled else 'off'}")
     lines.append(f"• calendar: {'on' if cfg.calendar_enabled else 'off'}")
     lines.append(f"• autonomous learning: {'on' if cfg.learning_enabled else 'off'}")

@@ -481,6 +481,11 @@ a tool-using turn multiplies it by the number of round trips. Options, cheapest 
 (`gpt-4.1`) which answers in a few seconds. `/why` shows how many model calls a turn actually
 made — three or more means the agent was chaining tools.
 
+**Complex questions come back empty or 400, simple ones work.** Fixed in code: reasoning
+tokens are spent from the same allowance as the reply, and harder questions reason more, so a
+budget sized for the answer alone starved exactly the turns that needed it. Budgets now carry
+headroom on top of the requested output, and a turn that returns empty is retried with more.
+
 **Deploy loops or exits with status 1.** Check the Render logs for a line starting
 `DATABASE DISABLED` or `INAIS is PAUSED`. Genuine crashes now only come from a missing
 `TELEGRAM_BOT_TOKEN` or `OWNER_TELEGRAM_ID` — everything else degrades to a warning.

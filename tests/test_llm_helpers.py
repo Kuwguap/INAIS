@@ -38,19 +38,20 @@ def test_parse_json_block_garbage():
 
 # ---------- reasoning-model token budgets ----------
 
-def test_reasoning_models_get_a_floor():
-    """GPT-5 spends hidden reasoning tokens from the same budget — 60 tokens 400s outright."""
-    from inais.llm import REASONING_MIN_TOKENS, completion_budget
+def test_reasoning_models_get_headroom_on_top_of_the_reply_budget():
+    """GPT-5 reasons from the same allowance, so a flat floor starves complex turns."""
+    from inais.llm import REASONING_HEADROOM, REASONING_MIN_TOKENS, completion_budget
 
-    assert completion_budget("gpt-5-mini", 60) == REASONING_MIN_TOKENS
-    assert completion_budget("gpt-5", 120) == REASONING_MIN_TOKENS
-    assert completion_budget("o3-mini", 50) == REASONING_MIN_TOKENS
+    assert completion_budget("gpt-5", 2048) == 2048 + REASONING_HEADROOM
+    assert completion_budget("o3-mini", 50) >= REASONING_MIN_TOKENS
 
 
-def test_a_generous_request_is_left_alone():
+def test_headroom_scales_with_the_request():
+    """The agent asks for more output than a classifier and must still be able to think."""
     from inais.llm import completion_budget
 
-    assert completion_budget("gpt-5", 8000) == 8000
+    assert completion_budget("gpt-5", 8000) > completion_budget("gpt-5", 2048)
+    assert completion_budget("gpt-5", 8000) > 8000
 
 
 def test_non_reasoning_models_keep_small_budgets():

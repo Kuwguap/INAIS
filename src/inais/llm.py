@@ -38,13 +38,17 @@ PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
 # max_completion_tokens gets consumed before any output exists and the API 400s. Floor it.
 REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 REASONING_MIN_TOKENS = 2000
+# Reasoning is spent BEFORE the reply and from the same allowance, and harder questions
+# reason more — so a fixed floor works for easy turns and starves complex ones. Give the
+# reply its full requested budget PLUS room to think. Budgets are caps, not charges.
+REASONING_HEADROOM = 6000
 _TOKEN_LIMIT_HINTS = ("max_tokens", "output limit")
 
 
 def completion_budget(model: str, requested: int) -> int:
     """Token budget to actually send, allowing for invisible reasoning tokens."""
     if model.startswith(REASONING_PREFIXES):
-        return max(requested, REASONING_MIN_TOKENS)
+        return max(requested + REASONING_HEADROOM, REASONING_MIN_TOKENS)
     return requested
 
 
@@ -78,6 +82,20 @@ async def _chat_completion(*, model: str, messages: list[dict], purpose: str,
     for _ in range(3):
         try:
             resp = await openai_client().chat.completions.create(**kwargs)
+            choice = resp.choices[0]
+            # A reasoning model can spend the whole allowance thinking and return an EMPTY
+            # reply with finish_reason=length — no exception, just silence. Treat it like
+            # the 400 and retry with room, or the user gets "(no reply)".
+            starved = (choice.finish_reason == "length"
+                       and not (choice.message.content or "").strip()
+                       and not choice.message.tool_calls)
+            if starved and not bumped:
+                bumped = True
+                kwargs["max_completion_tokens"] *= 3
+                log.warning("%s returned nothing on %s (spent its budget reasoning) — "
+                            "retrying with %s tokens", model, purpose,
+                            kwargs["max_completion_tokens"])
+                continue
             break
         except Exception as e:
             message = str(e).lower()

@@ -70,6 +70,12 @@ ruff check src tests scripts
   reasoning models (GPT-5/o-series spend hidden reasoning tokens from the SAME budget, so a
   60-token classifier budget 400s), sets `reasoning_effort=low` for classifiers, and retries
   once on an output-limit error. Never call `chat.completions.create` directly.
+- Reasoning tokens come out of `max_completion_tokens` BEFORE the reply, so a budget sized
+  for the answer starves complex turns — `completion_budget` adds headroom on top of the
+  request. A starved turn returns an empty message with `finish_reason=length` and no
+  exception, which `_chat_completion` retries; never assume a 200 means output.
+- Show `cfg.resolved_agent_model` / `cfg.agent_provider` in user-facing text, never
+  `cfg.agent_model` — the latter is the Anthropic setting and lies when running on OpenAI.
 - Latency on reasoning models is dominated by thinking, not tokens: keep classifiers at
   `reasoning_effort=minimal` and the agent at `OPENAI_REASONING_EFFORT` (default low).
 - Embed the user's turn ONCE and pass the vector to retrieval, `store.embed_message` and the
