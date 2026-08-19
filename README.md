@@ -244,8 +244,10 @@ Set `LEARNING_ENABLED=true` to switch on autonomous learning.
 it wants to understand (drawn from your conversations, exam topics and open tasks), searches the
 web, and writes itself a cited note. Ask `/learned` — or just *"what did you learn while I was
 away?"* — and it tells you. `/curiosity` shows what it wants to learn next; `/learn` forces a
-cycle now. Set `TAVILY_API_KEY` for good search results (it falls back to Brave, then
-DuckDuckGo).
+cycle now. Search runs through a provider chain, each tried until one returns results: **Serper**
+(`SERPER_API_KEY`, serper.dev, ~2,500 free/month — recommended) → Tavily → Brave →
+**Google CSE** (`GOOGLE_CSE_API_KEY` + `GOOGLE_CSE_ID`, 100/day backup) → DuckDuckGo, which
+needs no key. A spent quota degrades to the next provider instead of blinding the researcher.
 
 **The neural network.** `/brain` shows its status, `/train` retrains it. This is a real network —
 NumPy, real backpropagation, Adam, weights versioned in Postgres — trained on what you actually

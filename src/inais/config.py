@@ -83,8 +83,11 @@ class Settings(BaseSettings):
     nn_enabled: bool = True
     nn_hidden_dim: int = 32
     nn_min_examples: int = 40
+    serper_api_key: str = ""        # serper.dev — Google results, ~2,500 free/month
     tavily_api_key: str = ""
     brave_api_key: str = ""
+    google_cse_api_key: str = ""    # Google Programmable Search backup, 100 free/day
+    google_cse_id: str = ""
 
     # --- Personality & proactivity ---
     proactive_enabled: bool = False    # let it start conversations on its own
@@ -157,13 +160,28 @@ class Settings(BaseSettings):
         return [r.strip() for r in self.github_repos.split(",") if r.strip()]
 
     @property
-    def search_provider(self) -> str:
-        """Which web-search backend the learning loop uses."""
+    def search_providers(self) -> list[str]:
+        """Search backends in priority order; each is tried until one returns results.
+
+        Serper first (largest free pool), Google CSE as the daily-capped backup, DuckDuckGo
+        always last because it needs no key and best-effort beats nothing.
+        """
+        chain: list[str] = []
+        if self.serper_api_key:
+            chain.append("serper")
         if self.tavily_api_key:
-            return "tavily"
+            chain.append("tavily")
         if self.brave_api_key:
-            return "brave"
-        return "duckduckgo"  # no key needed, best-effort HTML scrape
+            chain.append("brave")
+        if self.google_cse_api_key and self.google_cse_id:
+            chain.append("google_cse")
+        chain.append("duckduckgo")
+        return chain
+
+    @property
+    def search_provider(self) -> str:
+        """The primary backend (kept for /status and logs)."""
+        return self.search_providers[0]
 
     @property
     def symbols(self) -> list[str]:

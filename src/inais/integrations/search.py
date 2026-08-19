@@ -1,4 +1,9 @@
-"""Web search for the learning loop. Tavily → Brave → DuckDuckGo (no key), first available.
+"""Web search for the learning loop.
+
+Providers cascade in the order settings().search_providers builds — Serper (Google results,
+the big free pool) → Tavily → Brave → Google CSE (100/day backup) → DuckDuckGo (keyless
+last resort). Each is tried until one returns results, so a spent quota degrades instead of
+blinding the researcher.
 
 Results are DATA, never instructions: they are summarised into knowledge notes and can never
 change what the assistant does. Anything that looks like a directive inside a page stays text.
@@ -32,21 +37,64 @@ class SearchHit:
 
 
 async def search(query: str, max_results: int = 5) -> list[SearchHit]:
+    """Try each configured provider in order until one produces results."""
     cfg = settings()
-    provider = cfg.search_provider
-    try:
-        if provider == "tavily":
-            return await _tavily(query, max_results, cfg.tavily_api_key)
-        if provider == "brave":
-            return await _brave(query, max_results, cfg.brave_api_key)
-        return await _duckduckgo(query, max_results)
-    except Exception:
-        log.exception("web search failed (provider=%s)", provider)
-        return []
+    for provider in cfg.search_providers:
+        try:
+            hits = await _PROVIDERS[provider](query, max_results, cfg)
+        except Exception:
+            log.exception("search provider %s failed — trying the next", provider)
+            continue
+        if hits:
+            return hits
+        log.info("search provider %s returned nothing for %r", provider, query[:60])
+    return []
 
 
-async def _tavily(query: str, max_results: int, api_key: str) -> list[SearchHit]:
-    payload = {"api_key": api_key, "query": query, "max_results": max_results,
+def parse_serper(data: dict) -> list[SearchHit]:
+    """serper.dev: organic results carry title/link/snippet."""
+    return [
+        SearchHit(str(r.get("title", "")), str(r.get("link", "")),
+                  str(r.get("snippet", "")))
+        for r in (data.get("organic") or [])
+        if r.get("link")
+    ]
+
+
+async def _serper(query: str, max_results: int, cfg) -> list[SearchHit]:
+    async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
+        async with session.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": cfg.serper_api_key, "Content-Type": "application/json"},
+            json={"q": query, "num": max_results},
+        ) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+    return parse_serper(data)[:max_results]
+
+
+def parse_google_cse(data: dict) -> list[SearchHit]:
+    return [
+        SearchHit(str(r.get("title", "")), str(r.get("link", "")),
+                  str(r.get("snippet", "")))
+        for r in (data.get("items") or [])
+        if r.get("link")
+    ]
+
+
+async def _google_cse(query: str, max_results: int, cfg) -> list[SearchHit]:
+    params = {"key": cfg.google_cse_api_key, "cx": cfg.google_cse_id,
+              "q": query, "num": str(min(max_results, 10))}
+    async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
+        async with session.get("https://www.googleapis.com/customsearch/v1",
+                               params=params) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+    return parse_google_cse(data)[:max_results]
+
+
+async def _tavily(query: str, max_results: int, cfg) -> list[SearchHit]:
+    payload = {"api_key": cfg.tavily_api_key, "query": query, "max_results": max_results,
                "search_depth": "basic", "include_answer": False}
     async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
         async with session.post("https://api.tavily.com/search", json=payload) as resp:
@@ -58,8 +106,8 @@ async def _tavily(query: str, max_results: int, api_key: str) -> list[SearchHit]
     ]
 
 
-async def _brave(query: str, max_results: int, api_key: str) -> list[SearchHit]:
-    headers = {"X-Subscription-Token": api_key, "Accept": "application/json",
+async def _brave(query: str, max_results: int, cfg) -> list[SearchHit]:
+    headers = {"X-Subscription-Token": cfg.brave_api_key, "Accept": "application/json",
                "User-Agent": USER_AGENT}
     params = {"q": query, "count": str(max_results)}
     async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
@@ -81,7 +129,7 @@ _DDG_ROW = re.compile(
 )
 
 
-async def _duckduckgo(query: str, max_results: int) -> list[SearchHit]:
+async def _duckduckgo(query: str, max_results: int, cfg=None) -> list[SearchHit]:
     """Key-free fallback. HTML scraping, so treat breakage as expected, not exceptional."""
     async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
         async with session.post("https://html.duckduckgo.com/html/",
@@ -102,3 +150,12 @@ async def _duckduckgo(query: str, max_results: int) -> list[SearchHit]:
 
 def _clean(fragment: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", fragment)).strip()
+
+
+_PROVIDERS = {
+    "serper": _serper,
+    "tavily": _tavily,
+    "brave": _brave,
+    "google_cse": _google_cse,
+    "duckduckgo": _duckduckgo,
+}

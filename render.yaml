@@ -133,8 +133,14 @@ services:
         value: "32"                   # ceiling; stays linear until data justifies growth
       - key: NN_MIN_EXAMPLES
         value: "40"                   # won't train on less signal than this
+      - key: SERPER_API_KEY
+        sync: false                   # serper.dev key — preferred provider, ~2,500 free/month
       - key: TAVILY_API_KEY
-        sync: false                   # optional, best search quality (falls back to DuckDuckGo)
+        sync: false                   # optional alternative
+      - key: GOOGLE_CSE_API_KEY
+        sync: false                   # Google Programmable Search backup (needs GOOGLE_CSE_ID too)
+      - key: GOOGLE_CSE_ID
+        sync: false                   # the CX id — account-specific, so prompted not committed
       - key: BRAVE_API_KEY
         sync: false                   # optional alternative
 
