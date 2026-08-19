@@ -1,7 +1,5 @@
--- INAIS — complete schema (migrations 001-017)
--- Paste into the Supabase SQL editor and run once. Safe to re-run: every statement is
--- idempotent. The final block records these as applied so scripts/apply_migrations.py
--- will skip them if you later run it.
+-- INAIS — complete schema (migrations 001-019)
+-- Paste into the Supabase SQL editor and run once. Idempotent; safe to re-run.
 
 create extension if not exists vector;
 
@@ -715,6 +713,47 @@ create index if not exists journal_recent_idx on journal_entries (created_at des
 create index if not exists journal_fts_idx on journal_entries using gin (fts);
 create index if not exists journal_embedding_idx on journal_entries using hnsw (embedding vector_ip_ops);
 
+-- ==================== 018_persona.sql ====================
+-- The assistant's own character: what it has come to like, dislike and think, and a record
+-- of every time it spoke without being spoken to (so it can be rate-limited and audited).
+
+create table if not exists persona_traits (
+    id         bigserial primary key,
+    kind       text        not null default 'opinion'
+        check (kind in ('like', 'dislike', 'opinion', 'habit', 'curiosity')),
+    statement  text        not null,
+    reason     text,
+    strength   real        not null default 0.6,
+    formed_at  timestamptz not null default now()
+);
+create unique index if not exists persona_traits_uidx on persona_traits (lower(statement));
+
+create table if not exists proactive_log (
+    id      bigserial primary key,
+    kind    text        not null,
+    content text        not null,
+    sent_at timestamptz not null default now()
+);
+create index if not exists proactive_recent_idx on proactive_log (sent_at desc);
+
+-- ==================== 019_engagement.sql ====================
+-- The engagement head: learning WHEN speaking first actually lands.
+--
+-- proactive_log grows outcome columns so every unprompted message becomes a training
+-- example with a genuine behavioural label: did the user reply within the window, or not?
+-- nn_examples grows optional context features (time-of-day, weekday) because "will they
+-- engage" depends on the clock as much as the content.
+
+alter table proactive_log add column if not exists medium text not null default 'text'
+    check (medium in ('text', 'voice'));
+alter table proactive_log add column if not exists replied boolean;
+alter table proactive_log add column if not exists reply_latency_s int;
+alter table proactive_log add column if not exists harvested boolean not null default false;
+create index if not exists proactive_unharvested_idx on proactive_log (sent_at)
+    where not harvested;
+
+alter table nn_examples add column if not exists context_features real[] not null default '{}';
+
 -- ==================== bookkeeping ====================
 create table if not exists schema_migrations (
     filename   text primary key,
@@ -737,7 +776,9 @@ insert into schema_migrations (filename) values
     ('014_review_items.sql'),
     ('015_drills.sql'),
     ('016_readlater.sql'),
-    ('017_journal.sql')
+    ('017_journal.sql'),
+    ('018_persona.sql'),
+    ('019_engagement.sql')
 on conflict do nothing;
 
 select count(*) as tables_created from information_schema.tables where table_schema = 'public';

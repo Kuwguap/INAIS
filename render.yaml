@@ -149,6 +149,8 @@ services:
         value: "8"
       - key: VOICE_NOTES_ENABLED
         value: "true"                 # it decides when a voice note beats text
+      - key: PROACTIVE_MIN_ENGAGEMENT
+        value: "0.3"                  # floor from the learned engagement net
 
       # ---------------- weekly review ----------------
       - key: WEEKLY_REVIEW_DAY

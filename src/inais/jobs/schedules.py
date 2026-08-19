@@ -193,6 +193,9 @@ def setup(bot) -> AsyncIOScheduler:
         if not cfg.nn_enabled or db.pool() is None:
             return
         try:
+            from inais.brain import signals as brain_signals
+
+            await brain_signals.harvest_engagement()
             log.info("nightly training: %s", await nn.train_all())
         except Exception:
             log.exception("nightly network training failed")

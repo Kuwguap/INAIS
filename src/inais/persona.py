@@ -96,10 +96,15 @@ def render(rows: list[dict]) -> str:
 
 async def block() -> str:
     """Full persona section: character, traits, and voice guidance."""
+    from inais.brain import affect
+
     parts = [CHARACTER]
     rendered = render(await traits())
     if rendered:
         parts.append(rendered)
+    steer = await affect.current_line()
+    if steer:
+        parts.append(f"## Right now\n{steer}")
     if settings().voice_notes_enabled:
         parts.append(VOICE_GUIDANCE)
     return "\n\n".join(parts)
@@ -128,11 +133,12 @@ async def spoken_today() -> int:
     return int(row["n"]) if row else 0
 
 
-async def log_proactive(kind: str, content: str) -> None:
+async def log_proactive(kind: str, content: str, medium: str = "text") -> None:
     p = db.pool()
     if p is not None:
         await p.execute(
-            "insert into proactive_log (kind, content) values ($1, $2)", kind, content[:2000])
+            "insert into proactive_log (kind, content, medium) values ($1, $2, $3)",
+            kind, content[:2000], medium if medium in ("text", "voice") else "text")
 
 
 async def may_speak_now() -> tuple[bool, str]:

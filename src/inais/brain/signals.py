@@ -83,3 +83,52 @@ async def user_message_signal(text: str, embedding: list[float] | None = None) -
     if len(stripped) < 25 or stripped.startswith("/"):
         return  # too short to carry topical signal
     await record_interest(stripped, True, note="user raised this topic", embedding=embedding)
+
+
+REPLY_WINDOW_MINUTES = 90      # a reply inside this window counts as engagement
+HARVEST_AFTER_HOURS = 3        # wait this long before labelling a message unanswered
+
+
+async def mark_proactive_replied() -> None:
+    """Called when the user messages: the newest unanswered unprompted message got a reply."""
+    p = db.pool()
+    if p is None:
+        return
+    await p.execute(
+        "update proactive_log set replied = true,"
+        " reply_latency_s = extract(epoch from (now() - sent_at))::int"
+        " where id = (select id from proactive_log"
+        "             where replied is null and sent_at > now() - interval '4 hours'"
+        "             order by sent_at desc limit 1)")
+
+
+async def harvest_engagement() -> int:
+    """Turn settled proactive messages into training examples for the engagement head.
+
+    The label is genuine behaviour: replied within the window = 1, silence = 0. Silence IS
+    a valid label here (unlike email importance) because the message explicitly invited a
+    response — not replying to an unprompted ping is the user saying "not now".
+    """
+    from inais.brain import nn
+
+    p = db.pool()
+    if p is None or not settings().nn_enabled:
+        return 0
+    rows = await p.fetch(
+        "select id, content, sent_at, replied, reply_latency_s from proactive_log"
+        " where not harvested and sent_at < now() - make_interval(hours => $1) limit 25",
+        HARVEST_AFTER_HOURS)
+    harvested = 0
+    for r in rows:
+        engaged = bool(r["replied"]) and (
+            r["reply_latency_s"] is None or r["reply_latency_s"] <= REPLY_WINDOW_MINUTES * 60)
+        ok = await nn.add_example(
+            "engagement", r["content"], 1.0 if engaged else 0.0,
+            note="replied" if engaged else "no reply",
+            context=nn.time_features(r["sent_at"]))
+        await p.execute("update proactive_log set harvested = true where id = $1", r["id"])
+        if ok:
+            harvested += 1
+    if harvested:
+        log.info("engagement: harvested %s example(s)", harvested)
+    return harvested

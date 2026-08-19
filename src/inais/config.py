@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     quiet_hours_start: int = 22        # never speaks unprompted between these hours
     quiet_hours_end: int = 8
     voice_notes_enabled: bool = True   # it may choose to reply by voice
+    # Below this predicted-engagement score an unprompted message is held back. Only applies
+    # once the engagement network beats chance on held-out data.
+    proactive_min_engagement: float = 0.3
 
     # --- Weekly review ---
     weekly_review_day: str = "sun"   # APScheduler day_of_week: mon..sun

@@ -111,6 +111,8 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
             asyncio.create_task(store.embed_message(user_msg_id, text, vec=user_vec))
         # whatever the user raises unprompted is training signal for the interest network
         asyncio.create_task(signals.user_message_signal(text, embedding=user_vec))
+        # and if we spoke first recently, this reply is the engagement label
+        asyncio.create_task(signals.mark_proactive_replied())
 
         if r.complexity == "simple":
             reply = await _simple_turn(agent, mem, history, text, notes, persona_text)

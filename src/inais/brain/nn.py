@@ -30,8 +30,25 @@ from inais.config import settings
 
 log = logging.getLogger(__name__)
 
-MODEL_NAMES = ("interest", "email_importance")
+MODEL_NAMES = ("interest", "email_importance", "engagement")
 DEFAULT_INPUT_DIM = 1536
+CONTEXT_DIMS = 5   # time-of-day + weekday features, for heads where the clock matters
+
+
+def time_features(dt) -> list[float]:
+    """Cyclical clock features: hour and weekday as sin/cos pairs, plus a weekend flag.
+
+    Whether an unprompted message lands depends on WHEN as much as on what it says — 9am
+    Tuesday and 1am Saturday are different users. Sin/cos keeps midnight adjacent to 23:00
+    instead of maximally distant, which a raw hour number gets wrong.
+    """
+    import math
+
+    hour_angle = 2 * math.pi * (dt.hour + dt.minute / 60) / 24
+    day_angle = 2 * math.pi * dt.weekday() / 7
+    return [math.sin(hour_angle), math.cos(hour_angle),
+            math.sin(day_angle), math.cos(day_angle),
+            1.0 if dt.weekday() >= 5 else 0.0]
 MIN_USABLE_AUC = 0.58     # below this the model never steers anything
 CV_FOLDS = 5
 
@@ -196,8 +213,13 @@ def cross_val_auc(x: np.ndarray, y: np.ndarray, w: np.ndarray, hidden_dim: int,
 # ---------- training data + persistence ----------
 
 async def add_example(model_name: str, text: str, label: float, note: str = "",
-                      weight: float = 1.0, embedding: list[float] | None = None) -> bool:
-    """Record one supervised example. Pass `embedding` to reuse one already computed."""
+                      weight: float = 1.0, embedding: list[float] | None = None,
+                      context: list[float] | None = None) -> bool:
+    """Record one supervised example. Pass `embedding` to reuse one already computed.
+
+    `context` carries non-text features (see time_features). Per model name the context
+    length must be constant — dimensions are decided by construction, not by migration.
+    """
     p = db.pool()
     if p is None or not text.strip() or model_name not in MODEL_NAMES:
         return False
@@ -207,9 +229,10 @@ async def add_example(model_name: str, text: str, label: float, note: str = "",
         log.exception("could not embed nn example")
         return False
     await p.execute(
-        "insert into nn_examples (model_name, embedding, label, weight, note)"
-        " values ($1, $2::vector, $3, $4, $5)",
+        "insert into nn_examples (model_name, embedding, label, weight, note, context_features)"
+        " values ($1, $2::vector, $3, $4, $5, $6)",
         model_name, vec, float(label), float(weight), note[:200] or None,
+        [float(x) for x in (context or [])],
     )
     return True
 
@@ -228,13 +251,16 @@ async def _load_examples(
     if p is None:
         return np.empty((0, 0)), np.empty(0), np.empty(0)
     rows = await p.fetch(
-        "select embedding::text as embedding, label, weight from nn_examples"
+        "select embedding::text as embedding, label, weight, context_features from nn_examples"
         " where model_name = $1 order by id desc limit $2",
         model_name, limit,
     )
     if not rows:
         return np.empty((0, 0)), np.empty(0), np.empty(0)
-    x = np.array([_parse_vector(r["embedding"]) for r in rows], dtype=float)
+    x = np.array([
+        _parse_vector(r["embedding"]) + [float(v) for v in (r["context_features"] or [])]
+        for r in rows
+    ], dtype=float)
     y = np.array([float(r["label"]) for r in rows], dtype=float)
     w = np.array([float(r["weight"]) for r in rows], dtype=float)
     return x, y, w
@@ -272,8 +298,9 @@ def invalidate_cache(model_name: str | None = None) -> None:
         _cache.pop(model_name, None)
 
 
-async def score(model_name: str, text: str) -> float | None:
-    """Predicted probability for one text, or None if no model is trustworthy yet."""
+async def score(model_name: str, text: str,
+                context: list[float] | None = None) -> float | None:
+    """Predicted probability for one text (+ context), or None if no model is trustworthy."""
     cfg = settings()
     if not cfg.nn_enabled or db.pool() is None:
         return None
@@ -286,7 +313,8 @@ async def score(model_name: str, text: str) -> float | None:
     if float(metrics.get("cv_auc", 0.0)) < MIN_USABLE_AUC:
         return None  # not yet better than guessing — don't let it steer anything
     try:
-        vec = np.array(await llm.embed(text), dtype=float)
+        vec = np.array(list(await llm.embed(text)) + [float(v) for v in (context or [])],
+                       dtype=float)
     except Exception:
         log.exception("scoring embed failed")
         return None

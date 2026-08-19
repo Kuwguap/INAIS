@@ -321,6 +321,19 @@ never during quiet hours (default 22:00–08:00), never twice about the same thi
 model is explicitly told that saying nothing is usually correct. Every unprompted message is
 logged in `proactive_log`.
 
+**The psychological layer.** It keeps a running read of how you seem to be doing — from your
+own recent messages and journal trend — and pitches its replies accordingly: brisk when
+you're grinding, short and warm when you've sounded stretched thin. Two hard rules: it only
+ever describes tone evidenced by your own words, and it never uses clinical or diagnostic
+language. It adapts its register; it does not label you.
+
+**The engagement head** is the third neural network. Every unprompted message becomes a
+training example with a genuine behavioural label — did you reply within 90 minutes, or not —
+plus time-of-day features, because 9am Tuesday and 1am Saturday are different users. Once it
+beats chance on held-out data, messages it rates below `PROACTIVE_MIN_ENGAGEMENT` are held
+back: the model proposes, your own history disposes. Unprompted messages can also arrive as
+voice notes when hearing beats reading.
+
 **On "sentient":** it isn't, and it won't pretend to be. The character is text it reads and
 text it writes back — there's no inner life behind it. What's real is the memory, the
 preferences it accumulates, and its opinions about your work, which is what actually makes it

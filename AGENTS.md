@@ -151,6 +151,11 @@ model). `normalise_verdict` is a pure function and is where validation belongs.
 the guardrails on speaking unprompted. The persona block is built once per turn and injected
 ahead of the agent prompt.
 
+`brain/affect.py` produces one cached steering sentence from the user's own words — it must
+never use clinical language, and too little data means saying nothing. `brain/signals.py`
+harvests engagement labels only after HARVEST_AFTER_HOURS > the reply window, or silence gets
+mislabelled before the user had a chance to answer.
+
 Keep two things true: the character must never licence claiming feelings or claiming a mail
 was sent, and proactive messages stay gated on `may_speak_now()` — enabled flag, quiet hours,
 daily cap. `jobs/proactive.py` is told that NOTHING is usually the right answer; if you loosen

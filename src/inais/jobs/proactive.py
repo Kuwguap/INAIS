@@ -17,11 +17,16 @@ log = logging.getLogger(__name__)
 
 DECIDE_SYSTEM = """You are INAIS deciding whether to message the user unprompted right now.
 
-You get the current state of their day. Reply with ONE of:
-- The message you want to send — at most 2 short lines, in your own voice.
-- The single word NOTHING.
+You get the current state of their day. Reply with ONLY JSON:
+{"action": "send" | "skip",
+ "medium": "text" | "voice",
+ "message": "at most 2 short lines, in your own voice (empty when skipping)"}
 
-NOTHING is the right answer most of the time. Send something only if it is genuinely useful
+Choose "voice" only when hearing it beats reading it — encouragement, a good-morning, a
+thought worth sharing warmly. Deadlines, numbers and anything they may need to scroll back
+to stay "text".
+
+"skip" is the right answer most of the time. Send something only if it is genuinely useful
 or genuinely warm at this exact moment: a deadline they'll miss, something you learned that
 answers a question they actually asked, a follow-up that's due today, a real change in their
 portfolio, or a well-judged word after a stretch of hard days.
@@ -83,11 +88,12 @@ async def _context() -> str:
 
 async def consider(bot) -> str | None:
     """Decide, and send if worth it. Returns what was sent, or None."""
+    cfg = settings()
     allowed, reason = await persona.may_speak_now()
     if not allowed:
         log.debug("proactive skipped: %s", reason)
         return None
-    if not settings().brain_enabled:
+    if not cfg.brain_enabled:
         return None
 
     context = await _context()
@@ -101,14 +107,63 @@ async def consider(bot) -> str | None:
         log.exception("proactive decision failed")
         return None
 
-    message = (reply or "").strip()
-    if not message or message.upper().startswith("NOTHING"):
+    decision = parse_decision(reply, voice_allowed=cfg.voice_notes_enabled)
+    if decision is None:
+        return None
+    medium, message = decision
+
+    # The engagement head has watched which unprompted messages actually got replies.
+    # Once it beats chance, a message it rates below the floor is held back — the model
+    # proposes, the user's own history disposes.
+    from inais.brain import nn
+
+    predicted = await nn.score("engagement", message,
+                               context=nn.time_features(now_local()))
+    if predicted is not None and predicted < cfg.proactive_min_engagement:
+        log.info("proactive held back (engagement %.2f < %.2f): %s",
+                 predicted, cfg.proactive_min_engagement, message[:60])
         return None
 
-    await bot.send_message(settings().owner_telegram_id, message)
-    await persona.log_proactive("checkin", message)
-    log.info("proactive message sent: %s", message[:80])
+    if medium == "voice":
+        from aiogram.types import BufferedInputFile
+
+        from inais.integrations import stt_tts
+
+        try:
+            ogg = await stt_tts.synthesize_voice(message)
+        except Exception:
+            log.exception("proactive voice synthesis failed — sending text")
+            ogg = None
+        if ogg:
+            await bot.send_voice(cfg.owner_telegram_id,
+                                 BufferedInputFile(ogg, filename="inais.ogg"))
+        else:
+            medium = "text"
+    if medium == "text":
+        await bot.send_message(cfg.owner_telegram_id, message)
+
+    await persona.log_proactive("checkin", message, medium=medium)
+    log.info("proactive %s sent: %s", medium, message[:80])
     return message
+
+
+def parse_decision(raw: str, voice_allowed: bool) -> tuple[str, str] | None:
+    """(medium, message) or None. Tolerates the old plain-text/NOTHING format."""
+    text = (raw or "").strip()
+    if not text or text.upper().startswith(("NOTHING", "SKIP")):
+        return None
+    data = llm.parse_json_block(text)
+    if data:
+        if str(data.get("action", "")).lower() != "send":
+            return None
+        message = str(data.get("message", "")).strip()
+        if not message:
+            return None
+        medium = str(data.get("medium", "text")).lower()
+        if medium != "voice" or not voice_allowed:
+            medium = "text"
+        return medium, message[:1000]
+    return "text", text[:1000]   # model ignored the JSON contract; treat it as a text send
 
 
 async def scheduled(bot) -> None:
