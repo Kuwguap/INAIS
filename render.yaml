@@ -34,7 +34,9 @@ services:
       - key: PORT
         value: "10000"                # Render routes to this port
       - key: TELEGRAM_WEBHOOK_SECRET
-        generateValue: true           # verified on every webhook request
+        generateValue: true           # verified on every webhook request. Render's generated
+                                      # value may contain + / = which Telegram rejects, so the
+                                      # code filters it to A-Z a-z 0-9 _ - before use.
       - key: WEBHOOK_SECRET_PATH
         generateValue: true           # random URL path so the endpoint isn't guessable
 

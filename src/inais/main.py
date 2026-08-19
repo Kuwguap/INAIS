@@ -78,17 +78,24 @@ async def run_web(bot: Bot, dp: Dispatcher) -> None:
         log.error("RUN_MODE=web but RENDER_EXTERNAL_URL is not set")
         sys.exit(1)
     webhook_url = f"{cfg.render_external_url.rstrip('/')}/wh/{cfg.webhook_path}"
-    await bot.set_webhook(
-        url=webhook_url,
-        secret_token=cfg.telegram_webhook_secret or None,
-        allowed_updates=["message", "callback_query"],
-    )
-    log.info("webhook set: %s", webhook_url)
+    webhook_ok = True
+    try:
+        await bot.set_webhook(
+            url=webhook_url,
+            secret_token=cfg.webhook_secret,
+            allowed_updates=["message", "callback_query"],
+        )
+        log.info("webhook set: %s", webhook_url)
+    except Exception as e:
+        # A rejected webhook used to exit the process, so the platform restarted it and
+        # tried again forever. Long polling reaches the same Telegram either way — take it,
+        # stay up, and say what happened.
+        webhook_ok = False
+        log.error("set_webhook failed (%s) — falling back to long polling", e)
 
     async def handle_webhook(request: web.Request) -> web.Response:
-        if cfg.telegram_webhook_secret and (
-            request.headers.get("X-Telegram-Bot-Api-Secret-Token") != cfg.telegram_webhook_secret
-        ):
+        # same property that was handed to setWebhook, so the two can never disagree
+        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != cfg.webhook_secret:
             return web.Response(status=403)
         try:
             data = await request.json()
@@ -113,7 +120,18 @@ async def run_web(bot: Bot, dp: Dispatcher) -> None:
     await site.start()
     log.info("listening on :%s", cfg.port)
     try:
-        await asyncio.Event().wait()  # run forever
+        if webhook_ok:
+            await asyncio.Event().wait()  # updates arrive on the webhook route
+        else:
+            # keep serving /healthz (the platform needs the port bound) and take updates
+            # by polling instead, so a webhook problem degrades rather than kills the bot
+            _spawn(bot.send_message(
+                cfg.owner_telegram_id,
+                "⚠️ Couldn't register the webhook, so I'm running on long polling instead.\n"
+                "I still work normally. Check TELEGRAM_WEBHOOK_SECRET "
+                "(letters, digits, _ and - only) and RENDER_EXTERNAL_URL."))
+            await bot.delete_webhook(drop_pending_updates=False)
+            await dp.start_polling(bot)
     finally:
         await runner.cleanup()
         await _shutdown()

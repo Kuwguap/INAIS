@@ -182,3 +182,56 @@ def test_empty_dsn_is_not_a_problem_just_a_disabled_feature():
 
     assert dsn_problem("") is None
     assert dsn_problem(None) is None
+
+
+# ---------- webhook secret / path sanitisation ----------
+
+def _settings(**over):
+    from inais.config import Settings
+
+    base = {"telegram_bot_token": "123456:ABCdef", "owner_telegram_id": 1}
+    base.update(over)
+    return Settings(**base)
+
+
+def test_generated_secret_is_filtered_to_telegrams_alphabet():
+    """Telegram rejects setWebhook outright for anything outside A-Z a-z 0-9 _ - ."""
+    import re
+
+    secret = _settings(telegram_webhook_secret="aB3+xy/z=Qw==").webhook_secret
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", secret)
+    assert "+" not in secret and "/" not in secret and "=" not in secret
+
+
+def test_webhook_secret_is_stable_for_the_same_input():
+    """setWebhook and the request check read the same property — they must never disagree."""
+    a = _settings(telegram_webhook_secret="aB3+xy/z=").webhook_secret
+    b = _settings(telegram_webhook_secret="aB3+xy/z=").webhook_secret
+    assert a == b
+
+
+def test_missing_secret_still_yields_a_verifiable_token():
+    """No secret used to mean no verification at all; derive one instead."""
+    secret = _settings(telegram_webhook_secret="").webhook_secret
+    assert len(secret) >= 32
+
+
+def test_secret_of_only_invalid_characters_falls_back():
+    assert len(_settings(telegram_webhook_secret="+/=+/=").webhook_secret) >= 32
+
+
+def test_webhook_secret_respects_telegrams_length_cap():
+    assert len(_settings(telegram_webhook_secret="a" * 400).webhook_secret) <= 256
+
+
+def test_webhook_path_never_contains_a_slash():
+    """A generated '/' would silently split the route and every update would 404."""
+    path = _settings(webhook_secret_path="p+a/th=").webhook_path
+    assert "/" not in path and path == "path"
+
+
+def test_webhook_path_falls_back_to_a_hex_digest():
+    import re
+
+    path = _settings(webhook_secret_path="").webhook_path
+    assert re.fullmatch(r"[0-9a-f]{32}", path)

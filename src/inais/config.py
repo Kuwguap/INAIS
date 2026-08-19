@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Telegram's secret_token alphabet, and what is safe in a URL path segment.
+_TG_TOKEN_RE = re.compile(r"[^A-Za-z0-9_-]")
+_URL_SAFE_RE = re.compile(r"[^A-Za-z0-9_-]")
 
 
 class Settings(BaseSettings):
@@ -124,10 +129,26 @@ class Settings(BaseSettings):
 
     @property
     def webhook_path(self) -> str:
-        """Random-ish URL path segment. Derived from the bot token if not set explicitly."""
-        if self.webhook_secret_path:
-            return self.webhook_secret_path
+        """URL path segment. Sanitised: a generated value may contain / + = which would
+        silently break the route, and the derived fallback is hex so it is always safe."""
+        cleaned = _URL_SAFE_RE.sub("", self.webhook_secret_path)[:64]
+        if cleaned:
+            return cleaned
         return hashlib.sha256(f"wh:{self.telegram_bot_token}".encode()).hexdigest()[:32]
+
+    @property
+    def webhook_secret(self) -> str:
+        """Header token Telegram echoes back on every update.
+
+        Telegram accepts ONLY A-Z a-z 0-9 _ - here and rejects setWebhook outright otherwise,
+        so whatever the platform generated is filtered to that alphabet. Both setWebhook and
+        the request check read this same property, so they cannot disagree. Falling back to a
+        token-derived value keeps verification on even when the variable is unset.
+        """
+        cleaned = _TG_TOKEN_RE.sub("", self.telegram_webhook_secret)[:256]
+        if cleaned:
+            return cleaned
+        return hashlib.sha256(f"secret:{self.telegram_bot_token}".encode()).hexdigest()
 
 
 class DbSettings(BaseSettings):

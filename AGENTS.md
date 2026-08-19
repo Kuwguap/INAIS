@@ -135,7 +135,10 @@ model). `normalise_verdict` is a pure function and is where validation belongs.
 4. Gmail scope is `gmail.modify` only (no delete scope); calendar adds `calendar.events` only.
 5. Secrets never in the repo. Local: `.env` (gitignored). Render: Blueprint `sync: false` +
    Secret File for the Google OAuth JSON.
-6. Webhook: random path + `X-Telegram-Bot-Api-Secret-Token` verified on every request.
+6. Webhook: random path + `X-Telegram-Bot-Api-Secret-Token` verified on every request. Read
+   the secret and path ONLY through `cfg.webhook_secret` / `cfg.webhook_path` — they filter to
+   the alphabets Telegram and URLs accept, and setWebhook must use the same value the request
+   check compares against.
 7. Idempotency: updates deduped by `update_id`; draft sends guarded by an atomic status
    transition; reminders claimed with an atomic `update ... returning`.
 8. `/pause` must stop every background behaviour. Any new autonomous path (a job, a loop, a

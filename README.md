@@ -431,6 +431,11 @@ this — it boots without persistence, messages you on Telegram, and `/status` n
 **The bot answers but forgets everything / `/tasks` is empty.** Run `/status`. If it says
 `database: OFF`, the reason is on that line. Nothing is stored until it says `on`.
 
+**"Bad Request: secret token contains unallowed characters"** — fixed in code: Telegram only
+accepts `A-Z a-z 0-9 _ -` in `TELEGRAM_WEBHOOK_SECRET`, and generated values often contain
+`+ / =`. The value is now filtered to that alphabet before use, and if the webhook still
+can't be registered the bot falls back to long polling rather than exiting.
+
 **Deploy loops or exits with status 1.** Check the Render logs for a line starting
 `DATABASE DISABLED` or `INAIS is PAUSED`. Genuine crashes now only come from a missing
 `TELEGRAM_BOT_TOKEN` or `OWNER_TELEGRAM_ID` — everything else degrades to a warning.
