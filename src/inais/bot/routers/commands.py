@@ -457,3 +457,27 @@ async def cmd_connect(message: Message) -> None:
         f"own private app. Tap Advanced → Continue.\n"
         f"The link expires in 15 minutes.",
         disable_web_page_preview=True)
+
+
+@router.message(Command("web"))
+async def cmd_web(message: Message) -> None:
+    """Search the web from a command (the agent also does this on its own now)."""
+    query = (message.text or "").partition(" ")[2].strip()
+    if not query:
+        await message.answer("Usage: /web <what to search for>")
+        return
+    from inais.integrations import search
+
+    await message.answer(f"🔎 Searching: {query}")
+    try:
+        hits = await search.search(query, max_results=8)
+    except Exception:
+        log.exception("/web failed")
+        await message.answer("Search failed — check the logs.")
+        return
+    if not hits:
+        await message.answer("No results (set SERPER_API_KEY for best coverage).")
+        return
+    body = "\n\n".join(f"• {h.title}\n{h.url}" for h in hits)
+    for chunk in split_message(f"🔎 {query}\n\n{body}"):
+        await message.answer(chunk, disable_web_page_preview=True)

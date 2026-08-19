@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     quiet_hours_start: int = 22        # never speaks unprompted between these hours
     quiet_hours_end: int = 8
     voice_notes_enabled: bool = True   # it may choose to reply by voice
+    # Voice-persona knobs — how it carries itself. Free text so you can tune in the .env.
+    persona_tone: str = "warm, direct"          # e.g. "playful", "formal", "deadpan"
+    persona_brevity: str = "concise"            # concise | balanced | thorough
+    persona_humour: bool = True
     # Below this predicted-engagement score an unprompted message is held back. Only applies
     # once the engagement network beats chance on held-out data.
     proactive_min_engagement: float = 0.3

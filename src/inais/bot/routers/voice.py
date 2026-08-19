@@ -13,7 +13,7 @@ from inais.config import settings
 from inais.integrations import stt_tts
 from inais.orchestrator import loop
 from inais.study import review
-from inais.textutil import error_reply, split_message
+from inais.textutil import error_reply, split_message, wants_voice
 
 log = logging.getLogger(__name__)
 router = Router(name="voice")
@@ -62,7 +62,7 @@ async def on_voice(message: Message) -> None:
     for chunk in split_message(reply):
         await message.answer(chunk)
 
-    if settings().voice_replies:
+    if settings().voice_replies or wants_voice(text):
         try:
             ogg = await stt_tts.synthesize_voice(reply)
             if ogg:

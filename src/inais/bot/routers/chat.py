@@ -10,10 +10,24 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from inais.orchestrator import loop
-from inais.textutil import error_reply, split_message
+from inais.textutil import error_reply, split_message, wants_voice
 
 log = logging.getLogger(__name__)
 router = Router(name="chat")
+
+
+async def _send_voice_reply(message, reply: str) -> None:
+    """Speak a reply as a Telegram voice bubble; silently no-op if TTS/ffmpeg is unavailable."""
+    from aiogram.types import BufferedInputFile
+
+    from inais.integrations import stt_tts
+
+    try:
+        ogg = await stt_tts.synthesize_voice(reply)
+        if ogg:
+            await message.answer_voice(BufferedInputFile(ogg, filename="reply.ogg"))
+    except Exception:
+        log.exception("voice reply synthesis failed — text already sent")
 
 
 @contextlib.asynccontextmanager
@@ -43,3 +57,7 @@ async def on_text(message: Message) -> None:
             reply = error_reply(e)
     for chunk in split_message(reply):
         await message.answer(chunk)
+
+    # deterministic: an explicit request always gets voice, whatever the model did
+    if wants_voice(message.text or ""):
+        await _send_voice_reply(message, reply)

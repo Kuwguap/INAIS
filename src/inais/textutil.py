@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 TELEGRAM_LIMIT = 4096
 
 
@@ -41,3 +43,20 @@ def error_reply(exc: Exception) -> str:
     detail = str(exc).replace("\n", " ").strip()
     return (f"⚠️ That turn failed.\n\n{type(exc).__name__}: {detail[:400]}\n\n"
             f"Run /diag to test each provider, or /why for the full trace of this turn.")
+
+
+_VOICE_REQUEST = re.compile(
+    r"\b(as|in|with|send|reply|respond|answer|record|make|give)\b[^.?!]*\b"
+    r"(voice ?note|voice ?message|voice ?memo|vn|audio|voice)\b"
+    r"|\b(voice ?note|voice ?message|vn) (it|this|that|please|me)\b"
+    r"|^(voice|vn)\b",
+    re.IGNORECASE)
+
+
+def wants_voice(text: str) -> bool:
+    """Did the user explicitly ask for the reply as a voice note?
+
+    Deterministic on purpose: relying on the model to call the speak tool is exactly what
+    failed — it typed "Voice note:" instead. An explicit request forces audio in the router.
+    """
+    return bool(_VOICE_REQUEST.search(text or ""))

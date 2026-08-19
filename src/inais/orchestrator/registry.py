@@ -353,3 +353,82 @@ register_common_tool(Tool(
     },
     handler=_form_opinion,
 ))
+
+
+# ---------- live web: search and open links, on demand in conversation ----------
+
+async def _web_search(ctx: ToolContext, args: dict) -> str:
+    """Search the web right now. This is what stops the model inventing curl commands."""
+    from inais.integrations import search
+
+    query = str(args.get("query", "")).strip()
+    if not query:
+        return "What should I search for?"
+    try:
+        hits = await search.search(query, max_results=int(args.get("count", 6) or 6))
+    except Exception as e:
+        log.exception("web_search failed")
+        return f"Search failed: {e}"
+    if not hits:
+        return ("No results (and no search provider may be configured — set SERPER_API_KEY, "
+                "or DuckDuckGo is the keyless fallback).")
+    return "\n\n".join(f"{h.title}\n{h.url}\n{h.snippet[:300]}" for h in hits)
+
+
+async def _read_url(ctx: ToolContext, args: dict) -> str:
+    """Fetch a page and return its readable text. Optionally save it to read-later."""
+    from inais.integrations import fetch
+
+    url = str(args.get("url", "")).strip()
+    if not url:
+        return "Which URL?"
+    try:
+        page = await fetch.fetch_page(url)
+    except fetch.FetchError as e:
+        return f"Couldn't open that: {e}"
+    except Exception as e:
+        log.exception("read_url failed")
+        return f"Couldn't open that: {e}"
+    if args.get("save"):
+        try:
+            from inais.study import links
+            await links.save(page)
+        except Exception:
+            log.exception("saving fetched page failed")
+    body = page.text[:6000]
+    more = "\n…(truncated)" if len(page.text) > 6000 else ""
+    return f"# {page.title}\n{page.url} · {page.words} words\n\n{body}{more}"
+
+
+register_common_tool(Tool(
+    name="web_search",
+    description="Search the live web and get back titles, links and snippets. Use this "
+                "whenever the user asks you to look something up, find information, research a "
+                "person or topic, or check current facts. Do NOT tell the user to run curl or "
+                "a script — you have this tool, use it.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "count": {"type": "integer", "description": "How many results (default 6)."},
+        },
+        "required": ["query"],
+    },
+    handler=_web_search,
+))
+
+register_common_tool(Tool(
+    name="read_url",
+    description="Open a web page and read its main text. Use it to follow a link from a "
+                "search result, or when the user gives you a URL to read. Set save=true to "
+                "also keep it in read-later. You CAN open links — never say you can't.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string"},
+            "save": {"type": "boolean", "description": "Also save to read-later."},
+        },
+        "required": ["url"],
+    },
+    handler=_read_url,
+))

@@ -165,6 +165,12 @@ services:
         value: "true"                 # it decides when a voice note beats text
       - key: PROACTIVE_MIN_ENGAGEMENT
         value: "0.3"                  # floor from the learned engagement net
+      - key: PERSONA_TONE
+        value: warm, direct           # playful | formal | deadpan | …
+      - key: PERSONA_BREVITY
+        value: concise                # concise | balanced | thorough
+      - key: PERSONA_HUMOUR
+        value: "true"
 
       # ---------------- weekly review ----------------
       - key: WEEKLY_REVIEW_DAY

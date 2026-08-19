@@ -80,3 +80,33 @@ def test_proactive_is_off_by_default():
 
     assert settings().proactive_enabled is False
     assert settings().proactive_max_per_day <= 5
+
+
+# ---------- voice request detection ----------
+
+@pytest.mark.parametrize("text", [
+    "Send your response as a voice note",
+    "reply with voice", "voice note it please", "can you vn this",
+    "say it as audio", "record a voice message for me",
+])
+def test_explicit_voice_requests_are_detected(text):
+    from inais.textutil import wants_voice
+
+    assert wants_voice(text)
+
+
+@pytest.mark.parametrize("text", [
+    "what time is my exam", "I need to find my voice in writing",
+    "stop reminding me", "summarise this chapter", "",
+])
+def test_ordinary_messages_do_not_force_voice(text):
+    from inais.textutil import wants_voice
+
+    assert not wants_voice(text)
+
+
+def test_persona_advertises_web_tools():
+    """The bot was telling the user to run curl — the persona must forbid that."""
+    text = persona.CHARACTER
+    assert "web_search" in text and "read_url" in text
+    assert "curl" in text  # explicitly told never to suggest it
