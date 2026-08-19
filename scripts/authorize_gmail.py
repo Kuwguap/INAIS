@@ -25,18 +25,19 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
-from inais.config import settings  # noqa: E402
+from inais.config import script_settings  # noqa: E402
 
 # gmail.modify covers read/label/draft/send-draft (never delete). The calendar scope is
 # requested only when CALENDAR_ENABLED=true — adding it later means re-running this script
 # for every account, because Google issues tokens per scope set.
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
-if settings().calendar_enabled:
+if script_settings().calendar_enabled:
     SCOPES.append("https://www.googleapis.com/auth/calendar.events")
 
 
 async def store(email: str, refresh_token: str) -> None:
-    conn = await asyncpg.connect(settings().supabase_db_url, statement_cache_size=0)
+    conn = await asyncpg.connect(script_settings().supabase_db_url,
+                                 statement_cache_size=0)
     try:
         await conn.execute(
             "insert into gmail_accounts (email, refresh_token, status, last_history_id)"
@@ -50,7 +51,7 @@ async def store(email: str, refresh_token: str) -> None:
 
 
 def main() -> None:
-    cfg = settings()
+    cfg = script_settings()
     if not cfg.supabase_db_url:
         sys.exit("SUPABASE_DB_URL is not set (put it in .env)")
     expected = sys.argv[1].lower() if len(sys.argv) > 1 else ""

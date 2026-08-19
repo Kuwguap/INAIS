@@ -14,13 +14,13 @@ import sys
 import asyncpg
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
-from inais.config import db_settings  # noqa: E402
+from inais.config import script_settings  # noqa: E402
 
 MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parents[1] / "db" / "migrations"
 
 
 async def main() -> None:
-    cfg = db_settings()
+    cfg = script_settings()
     if not cfg.supabase_db_url:
         sys.exit("SUPABASE_DB_URL is not set (put it in .env)")
     conn = await asyncpg.connect(cfg.supabase_db_url, statement_cache_size=0)

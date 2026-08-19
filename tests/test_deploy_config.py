@@ -123,16 +123,21 @@ def test_env_example_ships_no_real_secrets():
                 assert not value, f".env.example must not ship a value for {key}"
 
 
-def test_migrations_do_not_require_a_bot_token():
-    """Documented deploy order applies migrations before the bot is configured (and in CI)."""
-    from inais.config import DbSettings
+def test_setup_scripts_do_not_require_a_bot_token():
+    """Migrations and Gmail auth both run BEFORE the bot is configured."""
+    from inais.config import ScriptSettings
 
-    assert DbSettings().model_dump().keys() == {"supabase_db_url"}
+    fields = set(ScriptSettings().model_dump())
+    assert "telegram_bot_token" not in fields
+    assert "owner_telegram_id" not in fields
+    assert {"supabase_db_url", "google_oauth_client_json"} <= fields
 
 
-def test_migration_runner_uses_the_minimal_settings():
-    runner = (ROOT / "scripts" / "apply_migrations.py").read_text(encoding="utf-8")
-    assert "db_settings" in runner and "import settings" not in runner
+def test_setup_scripts_use_the_minimal_settings():
+    for name in ("apply_migrations.py", "authorize_gmail.py"):
+        source = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+        assert "script_settings" in source, name
+        assert "import settings" not in source, name
 
 
 # ---------- database connection string validation ----------

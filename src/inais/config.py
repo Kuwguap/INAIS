@@ -183,16 +183,19 @@ class Settings(BaseSettings):
         return hashlib.sha256(f"secret:{self.telegram_bot_token}".encode()).hexdigest()
 
 
-class DbSettings(BaseSettings):
-    """Just the database URL.
+class ScriptSettings(BaseSettings):
+    """What the one-off maintenance scripts need, and nothing else.
 
-    Maintenance scripts (migrations) legitimately run without a bot token or API keys, and
-    Settings requires those. Env access still lives only in this module.
+    Applying migrations and authorizing a Gmail account both run BEFORE the bot is
+    configured — demanding a Telegram token to do either is pure friction. Env access still
+    lives only in this module.
     """
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     supabase_db_url: str = ""
+    google_oauth_client_json: str = "google_oauth_client.json"
+    calendar_enabled: bool = False
 
 
 @lru_cache
@@ -201,5 +204,5 @@ def settings() -> Settings:
 
 
 @lru_cache
-def db_settings() -> DbSettings:
-    return DbSettings()
+def script_settings() -> ScriptSettings:
+    return ScriptSettings()
