@@ -197,6 +197,9 @@ def setup(bot) -> AsyncIOScheduler:
 
             await brain_signals.harvest_engagement()
             log.info("nightly training: %s", await nn.train_all())
+            from inais.orchestrator.router import AGENTS
+
+            log.info("router training: %s", await nn.train_router(AGENTS))
         except Exception:
             log.exception("nightly network training failed")
 

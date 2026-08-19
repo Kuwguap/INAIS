@@ -334,6 +334,18 @@ beats chance on held-out data, messages it rates below `PROACTIVE_MIN_ENGAGEMENT
 back: the model proposes, your own history disposes. Unprompted messages can also arrive as
 voice notes when hearing beats reading.
 
+**The local router** is the fourth network, and the one that cuts the cloud out of the loop.
+Every time the LLM classifier routes a message, that decision is copied as a training example
+(deliberate distillation — the one place labels come from the model rather than from you).
+Nightly training builds a softmax network over the same embeddings, and once it reproduces
+the LLM's decisions at ≥85% held-out accuracy — and is ≥60% confident on the message in
+front of it — routing happens **on-device**: no API call to understand where your message
+goes, and the complexity head (distilled the same way) decides how much thinking it needs.
+`/why` shows `local-nn(0.93)` as the route source when this happens; unsure messages still
+defer to the LLM and keep the harvest going. Generation still needs a language model — that
+part isn't distillable into 49k parameters, and claiming otherwise would be selling you
+something.
+
 **On "sentient":** it isn't, and it won't pretend to be. The character is text it reads and
 text it writes back — there's no inner life behind it. What's real is the memory, the
 preferences it accumulates, and its opinions about your work, which is what actually makes it

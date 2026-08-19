@@ -46,10 +46,25 @@ def rule_route(text: str) -> Route | None:
     return None
 
 
-async def route(text: str) -> Route:
+async def route(text: str, vec: list[float] | None = None) -> Route:
     r = rule_route(text)
     if r is not None:
         return r
+
+    # Local first: once the distilled router reproduces the LLM's decisions reliably AND
+    # the complexity head beats chance, this message never leaves the machine to be
+    # understood. Either head unsure → fall through to the LLM (and keep harvesting).
+    if vec is not None:
+        from inais.brain import nn
+
+        local = await nn.classify_route(vec)
+        if local is not None:
+            agent, confidence = local
+            hardness = await nn.score("complexity", text)
+            if hardness is not None:
+                complexity = "complex" if hardness >= 0.5 else "simple"
+                return Route(agent, complexity, f"local-nn({confidence:.2f})")
+
     if not settings().openai_api_key:
         return Route("study", "complex", "no-classifier")
     data = await llm.openai_json(
@@ -69,4 +84,16 @@ async def route(text: str) -> Route:
     )
     agent = data.get("agent") if data.get("agent") in AGENTS else "study"
     complexity = data.get("complexity") if data.get("complexity") in ("simple", "complex") else "complex"
+
+    # distillation harvest: the LLM's decision becomes a training example, so the local
+    # router and complexity head learn to make this exact call without the API
+    if vec is not None:
+        import asyncio
+
+        from inais.brain import nn
+
+        asyncio.create_task(nn.add_router_example(text, agent, AGENTS, embedding=vec))
+        asyncio.create_task(nn.add_example(
+            "complexity", text, 1.0 if complexity == "complex" else 0.0,
+            note="distilled from LLM router", embedding=vec))
     return Route(agent, complexity, "classifier")

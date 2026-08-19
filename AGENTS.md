@@ -131,6 +131,11 @@ Two separate mechanisms, both gated by `LEARNING_ENABLED`:
    goes active only if it beats the incumbent's CV AUC. Below `MIN_USABLE_AUC` (0.58) `score()`
    returns `None` and the network steers nothing.
 
+The router head is the one deliberate exception to "never train on LLM opinions": it is
+DISTILLATION — copying the cloud classifier so routing can happen locally. Behavioural heads
+(interest, email_importance, engagement) must keep their labels from real user actions.
+The persona never volunteers self-disclaimers; honesty lives in the direct-question clause.
+
 Be accurate about scope in user-facing text: this network learns the user's *attention
 function* and steers behaviour (what to research, which mail interrupts them). It does not
 generate language, and single-user data cannot train a language model. RAG memory is the

@@ -11,8 +11,12 @@ def test_character_sets_a_voice_not_a_disclaimer_wall():
     text = persona.CHARACTER
     assert "opinions" in text
     assert "Short by default" in text
-    # the persona must not licence claiming feelings or sending mail
-    assert "Don't claim feelings" in text
+    # it must inhabit the character without deflating disclaimers...
+    assert "never break register" in text
+    assert '"as an AI"' in text
+    # ...while staying honest under a direct question, and never inventing user facts
+    assert "directly asked" in text
+    assert "Never invent facts about the user" in text
     assert "never claim to have sent an email" in text.lower()
 
 

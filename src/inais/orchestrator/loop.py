@@ -71,7 +71,17 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
                 "OPENAI_API_KEY in .env to enable it. (M0 echo mode)\n\nYou said: " + text)
 
     try:
-        r = await router.route(text)
+        # One embedding of the user's text, reused four ways: the LOCAL router, memory
+        # retrieval, the stored message, and the interest network's training example.
+        # It comes first so routing can happen on-device when the distilled router is good.
+        user_vec: list[float] | None = None
+        if cfg.db_enabled and cfg.brain_enabled:
+            try:
+                user_vec = await llm.embed(text)
+            except Exception:
+                log.exception("embedding the user turn failed — continuing without memory")
+
+        r = await router.route(text, vec=user_vec)
         if _session_pinned(chat_id):
             r = router.Route(r.agent, "complex", "pinned")
         if images:
@@ -79,16 +89,6 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
 
         agent = registry.get_agent(r.agent)
         turn.agent, turn.complexity, turn.route_source = agent.name, r.complexity, r.source
-
-        # One embedding of the user's text, reused three ways: memory retrieval, the stored
-        # message, and the interest network's training example. Embedding it once per use
-        # was three identical API calls every turn.
-        user_vec: list[float] | None = None
-        if cfg.db_enabled:
-            try:
-                user_vec = await llm.embed(text)
-            except Exception:
-                log.exception("embedding the user turn failed — continuing without memory")
 
         mem = await retrieval.gather(agent.name, text, query_vec=user_vec)
         persona_text = await persona.block()

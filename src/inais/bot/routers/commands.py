@@ -236,7 +236,11 @@ async def cmd_train(message: Message) -> None:
         return
     await message.answer("🏋️ Training on your behaviour signals…")
     try:
+        from inais.orchestrator.router import AGENTS
+
         result = await nn.train_all()
+        result += "
+" + await nn.train_router(AGENTS)
     except Exception:
         log.exception("manual training failed")
         result = "Training failed — check the logs."

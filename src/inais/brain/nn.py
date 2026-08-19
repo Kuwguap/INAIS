@@ -30,7 +30,7 @@ from inais.config import settings
 
 log = logging.getLogger(__name__)
 
-MODEL_NAMES = ("interest", "email_importance", "engagement")
+MODEL_NAMES = ("interest", "email_importance", "engagement", "complexity")
 DEFAULT_INPUT_DIM = 1536
 CONTEXT_DIMS = 5   # time-of-day + weekday features, for heads where the clock matters
 
@@ -292,10 +292,14 @@ _cache: dict[str, tuple[MLP, dict] | None] = {}
 
 
 def invalidate_cache(model_name: str | None = None) -> None:
+    global _router_cache
     if model_name is None:
         _cache.clear()
+        _router_cache = False
     else:
         _cache.pop(model_name, None)
+        if model_name == "router":
+            _router_cache = False
 
 
 async def score(model_name: str, text: str,
@@ -426,3 +430,243 @@ async def status() -> str:
             f"({counts['pos']} positive).")
     return ("🧠 Neural network status\n" + "\n".join(lines)
             + "\n\nIt learns what you pay attention to, not language. /train to retrain.")
+
+
+# ---------------------------------------------------------------------------
+# The local router: a softmax network distilled from the cloud classifier.
+#
+# Unlike the binary heads (trained on the user's own taps), this one is deliberate
+# DISTILLATION: the label is what the LLM router decided for the same message. The goal is
+# not judgement but independence — once the local model reproduces those decisions reliably,
+# most messages never need a cloud call to be understood. The gate is strict (cv accuracy
+# and per-prediction confidence) because a misroute sends a question to the wrong specialist.
+# ---------------------------------------------------------------------------
+
+ROUTER_MODEL_NAME = "router"
+ROUTER_MIN_EXAMPLES = 80
+ROUTER_MIN_ACC_TO_USE = 0.85       # below this, keep paying for the LLM classifier
+ROUTER_MIN_CONFIDENCE = 0.60       # per-message: an unsure local router defers
+
+
+class SoftmaxNet:
+    """Multi-class sibling of MLP: optional tanh hidden layer into softmax, Adam on CE."""
+
+    def __init__(self, input_dim: int, n_classes: int, hidden_dim: int = 0,
+                 seed: int = 17) -> None:
+        rng = np.random.default_rng(seed)
+        self.input_dim = input_dim
+        self.n_classes = n_classes
+        self.hidden_dim = max(0, hidden_dim)
+        if self.hidden_dim:
+            self.w1 = rng.normal(0.0, np.sqrt(2.0 / input_dim), (input_dim, self.hidden_dim))
+            self.b1 = np.zeros(self.hidden_dim)
+            self.w2 = rng.normal(0.0, np.sqrt(1.0 / self.hidden_dim),
+                                 (self.hidden_dim, n_classes))
+        else:
+            self.w1 = None
+            self.b1 = None
+            self.w2 = np.zeros((input_dim, n_classes))
+        self.b2 = np.zeros(n_classes)
+
+    def forward(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        h = np.tanh(x @ self.w1 + self.b1) if self.hidden_dim else x
+        z = h @ self.w2 + self.b2
+        z = z - z.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        return e / e.sum(axis=1, keepdims=True), h
+
+    def predict_proba(self, x: np.ndarray) -> np.ndarray:
+        return self.forward(np.atleast_2d(x))[0]
+
+    def _params(self) -> dict[str, np.ndarray]:
+        params = {"w2": self.w2, "b2": self.b2}
+        if self.hidden_dim:
+            params["w1"] = self.w1
+            params["b1"] = self.b1
+        return params
+
+    def fit(self, x: np.ndarray, y: np.ndarray, epochs: int = 200, lr: float = 5e-3,
+            l2: float = 1e-2, batch_size: int = 32, seed: int = 17) -> float:
+        """y holds integer class indices. Returns final mean cross-entropy."""
+        n = x.shape[0]
+        y = y.astype(int)
+        rng = np.random.default_rng(seed)
+        m = {k: np.zeros_like(v) for k, v in self._params().items()}
+        v = {k: np.zeros_like(val) for k, val in self._params().items()}
+        beta1, beta2, eps, step = 0.9, 0.999, 1e-8, 0
+        loss = 0.0
+        for _ in range(epochs):
+            order = rng.permutation(n)
+            epoch_loss = 0.0
+            for start in range(0, n, batch_size):
+                idx = order[start:start + batch_size]
+                xb, yb = x[idx], y[idx]
+                probs, h = self.forward(xb)
+                p_true = np.clip(probs[np.arange(len(idx)), yb], 1e-9, 1.0)
+                epoch_loss += float(-np.log(p_true).sum())
+
+                d_z = probs.copy()
+                d_z[np.arange(len(idx)), yb] -= 1.0
+                d_z /= max(1, len(idx))
+                grads = {"w2": h.T @ d_z + l2 * self.w2, "b2": d_z.sum(axis=0)}
+                if self.hidden_dim:
+                    d_h = (d_z @ self.w2.T) * (1.0 - h ** 2)
+                    grads["w1"] = xb.T @ d_h + l2 * self.w1
+                    grads["b1"] = d_h.sum(axis=0)
+                step += 1
+                for key, grad in grads.items():
+                    m[key] = beta1 * m[key] + (1 - beta1) * grad
+                    v[key] = beta2 * v[key] + (1 - beta2) * (grad ** 2)
+                    m_hat = m[key] / (1 - beta1 ** step)
+                    v_hat = v[key] / (1 - beta2 ** step)
+                    setattr(self, key,
+                            getattr(self, key) - lr * m_hat / (np.sqrt(v_hat) + eps))
+            loss = epoch_loss / max(1, n)
+        return loss
+
+    def to_bytes(self) -> bytes:
+        buf = io.BytesIO()
+        np.savez_compressed(buf, **self._params())
+        return buf.getvalue()
+
+    @classmethod
+    def from_bytes(cls, blob: bytes, input_dim: int, n_classes: int,
+                   hidden_dim: int) -> SoftmaxNet:
+        net = cls(input_dim, n_classes, hidden_dim)
+        with np.load(io.BytesIO(blob)) as data:
+            net.w2, net.b2 = data["w2"], data["b2"]
+            if hidden_dim:
+                net.w1, net.b1 = data["w1"], data["b1"]
+        return net
+
+
+def softmax_cv_accuracy(x: np.ndarray, y: np.ndarray, n_classes: int, hidden_dim: int,
+                        folds: int = CV_FOLDS) -> float:
+    """Out-of-fold accuracy for the router candidates."""
+    n = x.shape[0]
+    folds = max(2, min(folds, n // 10 or 2))
+    bounds = np.array_split(np.arange(n), folds)
+    scores: list[float] = []
+    for fold in bounds:
+        mask = np.ones(n, dtype=bool)
+        mask[fold] = False
+        if len(np.unique(y[mask])) < 2:
+            continue
+        net = SoftmaxNet(x.shape[1], n_classes, hidden_dim)
+        net.fit(x[mask], y[mask])
+        pred = net.predict_proba(x[~mask]).argmax(axis=1)
+        scores.append(float(np.mean(pred == y[~mask].astype(int))))
+    return float(np.mean(scores)) if scores else 0.0
+
+
+async def add_router_example(text: str, agent: str, classes: tuple[str, ...],
+                             embedding: list[float] | None = None) -> bool:
+    """One distillation example: what the LLM router decided for this message."""
+    if agent not in classes:
+        return False
+    p = db.pool()
+    if p is None or not text.strip():
+        return False
+    try:
+        vec = llm.vec_literal(embedding if embedding is not None else await llm.embed(text))
+    except Exception:
+        log.exception("could not embed router example")
+        return False
+    await p.execute(
+        "insert into nn_examples (model_name, embedding, label, weight, note)"
+        " values ($1, $2::vector, $3, 1.0, $4)",
+        ROUTER_MODEL_NAME, vec, float(classes.index(agent)), agent)
+    return True
+
+
+async def train_router(classes: tuple[str, ...]) -> str:
+    cfg = settings()
+    p = db.pool()
+    if p is None:
+        return "router: no database."
+    x, y, _ = await _load_examples(ROUTER_MODEL_NAME)
+    n = x.shape[0]
+    if n < ROUTER_MIN_EXAMPLES:
+        return f"router: {n}/{ROUTER_MIN_EXAMPLES} examples — still learning from the LLM."
+    if len(np.unique(y.astype(int))) < 2:
+        return f"router: {n} examples but only one agent seen."
+
+    rng = np.random.default_rng(7)
+    perm = rng.permutation(n)
+    x, y = x[perm], y[perm]
+    results = [(softmax_cv_accuracy(x, y, len(classes), h), h)
+               for h in candidate_architectures(n, cfg.nn_hidden_dim)]
+    best_acc, best_hidden = max(results)
+
+    net = SoftmaxNet(x.shape[1], len(classes), best_hidden)
+    loss = net.fit(x, y)
+    metrics = {"cv_acc": round(best_acc, 4), "n": int(n), "hidden_dim": best_hidden,
+               "classes": list(classes), "train_loss": round(float(loss), 4)}
+
+    previous = await load_active(ROUTER_MODEL_NAME)
+    prev_acc = float(previous[1].get("cv_acc", 0.0)) if previous else 0.0
+    promote = best_acc >= max(prev_acc, 0.70)
+
+    row = await p.fetchrow(
+        "select coalesce(max(version), 0) + 1 as v from nn_models where name = $1",
+        ROUTER_MODEL_NAME)
+    await p.execute(
+        "insert into nn_models (name, version, input_dim, hidden_dim, weights, examples,"
+        " metrics, active) values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)",
+        ROUTER_MODEL_NAME, row["v"], net.input_dim, best_hidden, net.to_bytes(), n,
+        json.dumps(metrics), promote)
+    if promote:
+        await p.execute("update nn_models set active = false where name = $1 and version <> $2",
+                        ROUTER_MODEL_NAME, row["v"])
+        invalidate_cache(ROUTER_MODEL_NAME)
+    live = "routing locally" if best_acc >= ROUTER_MIN_ACC_TO_USE else "shadowing the LLM"
+    return f"router v{row['v']}: acc {best_acc:.3f} on {n} examples — {live}"
+
+
+_router_cache: tuple[SoftmaxNet, dict] | None | bool = False   # False = not loaded yet
+
+
+async def _load_router() -> tuple[SoftmaxNet, dict] | None:
+    p = db.pool()
+    if p is None:
+        return None
+    row = await p.fetchrow(
+        "select weights, input_dim, hidden_dim, metrics from nn_models"
+        " where name = $1 and active order by version desc limit 1", ROUTER_MODEL_NAME)
+    if row is None:
+        return None
+    raw = row["metrics"]
+    metrics = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+    classes = metrics.get("classes") or []
+    if not classes:
+        return None
+    try:
+        net = SoftmaxNet.from_bytes(bytes(row["weights"]), row["input_dim"],
+                                    len(classes), row["hidden_dim"])
+    except Exception:
+        log.exception("could not deserialize the router")
+        return None
+    return net, metrics
+
+
+async def classify_route(embedding: list[float]) -> tuple[str, float] | None:
+    """(agent, confidence) from the local router — or None when it must defer to the LLM."""
+    global _router_cache
+    if not settings().nn_enabled:
+        return None
+    if _router_cache is False:
+        _router_cache = await _load_router()
+    if _router_cache is None:
+        return None
+    net, metrics = _router_cache
+    if float(metrics.get("cv_acc", 0.0)) < ROUTER_MIN_ACC_TO_USE:
+        return None
+    vec = np.array(embedding, dtype=float)
+    if vec.shape[0] != net.input_dim:
+        return None
+    probs = net.predict_proba(vec)[0]
+    idx = int(probs.argmax())
+    confidence = float(probs[idx])
+    if confidence < ROUTER_MIN_CONFIDENCE:
+        return None
+    return metrics["classes"][idx], confidence
