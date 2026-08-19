@@ -239,8 +239,7 @@ async def cmd_train(message: Message) -> None:
         from inais.orchestrator.router import AGENTS
 
         result = await nn.train_all()
-        result += "
-" + await nn.train_router(AGENTS)
+        result += "\n" + await nn.train_router(AGENTS)
     except Exception:
         log.exception("manual training failed")
         result = "Training failed — check the logs."

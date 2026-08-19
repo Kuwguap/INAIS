@@ -428,6 +428,21 @@ async def status() -> str:
             f"• {name}: v{active['version']} ({shape}) — CV AUC {m.get('cv_auc')} on "
             f"{m.get('n')} examples, {steering}. Now {counts['n']} examples "
             f"({counts['pos']} positive).")
+    router = await p.fetchrow(
+        "select version, metrics from nn_models where name = 'router' and active"
+        " order by version desc limit 1")
+    router_examples = await p.fetchrow(
+        "select count(*) as n from nn_examples where model_name = 'router'")
+    if router is None:
+        lines.append(f"• router: shadowing the LLM "
+                     f"({router_examples['n']} decisions copied so far)")
+    else:
+        raw = router["metrics"]
+        m = raw if isinstance(raw, dict) else json.loads(raw)
+        acc = float(m.get("cv_acc", 0))
+        state = "routing locally" if acc >= ROUTER_MIN_ACC_TO_USE else "shadowing the LLM"
+        lines.append(f"• router: v{router['version']} — acc {m.get('cv_acc')} on "
+                     f"{m.get('n')} examples, {state}")
     return ("🧠 Neural network status\n" + "\n".join(lines)
             + "\n\nIt learns what you pay attention to, not language. /train to retrain.")
 
