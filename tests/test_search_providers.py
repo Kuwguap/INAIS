@@ -114,3 +114,24 @@ def test_fetch_validates_every_redirect_hop():
     assert "_resolve_public" in source
     assert "_PinnedResolver" in source
     assert "allow_redirects=False" in source
+
+
+def test_search_traced_reports_the_provider_used():
+    import inspect
+
+    from inais.integrations import search
+
+    src = inspect.getsource(search.search_traced)
+    assert "return provider, hits" in src
+    # search() delegates to it so callers can still ignore the provider
+    assert "search_traced" in inspect.getsource(search.search)
+
+
+def test_probe_covers_every_provider():
+    import inspect
+
+    from inais.integrations import search
+
+    src = inspect.getsource(search.probe)
+    for name in ("serper", "tavily", "brave", "google_cse", "duckduckgo"):
+        assert f'"{name}"' in src

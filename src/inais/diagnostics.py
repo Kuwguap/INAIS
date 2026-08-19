@@ -93,6 +93,14 @@ async def run() -> str:
     lines.append(await check_agent_brain())  # whichever provider runs the loop
     lines.append(await check_embeddings())  # memory writes
 
+    lines.append("")
+    try:
+        from inais.integrations import search
+        lines.append(await search.probe())
+    except Exception:
+        log.exception("search probe failed")
+        lines.append("❌ search probe failed — check the logs")
+
     cfg = settings()
     lines.append("")
     lines.append(f"{OK if cfg.binance_enabled else OFF} binance"

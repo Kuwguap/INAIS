@@ -38,6 +38,12 @@ class SearchHit:
 
 async def search(query: str, max_results: int = 5) -> list[SearchHit]:
     """Try each configured provider in order until one produces results."""
+    _, hits = await search_traced(query, max_results)
+    return hits
+
+
+async def search_traced(query: str, max_results: int = 5) -> tuple[str, list[SearchHit]]:
+    """Like search(), but also returns which provider produced the results."""
     cfg = settings()
     for provider in cfg.search_providers:
         try:
@@ -46,9 +52,45 @@ async def search(query: str, max_results: int = 5) -> list[SearchHit]:
             log.exception("search provider %s failed — trying the next", provider)
             continue
         if hits:
-            return hits
+            return provider, hits
         log.info("search provider %s returned nothing for %r", provider, query[:60])
-    return []
+    return "none", []
+
+
+async def probe() -> str:
+    """Test every provider and report the raw outcome — for /diag.
+
+    search() hides which backend answered and swallows errors to fall through, so a wrong
+    Serper key looks identical to 'no results'. This says exactly what each one did.
+    """
+    import aiohttp as _aiohttp
+
+    cfg = settings()
+    q = "test query"
+    lines = [f"🔎 Search providers (order: {' → '.join(cfg.search_providers)})"]
+    checks = [
+        ("serper", bool(cfg.serper_api_key)),
+        ("tavily", bool(cfg.tavily_api_key)),
+        ("brave", bool(cfg.brave_api_key)),
+        ("google_cse", bool(cfg.google_cse_api_key and cfg.google_cse_id)),
+        ("duckduckgo", True),
+    ]
+    for name, configured in checks:
+        if not configured:
+            lines.append(f"⏸ {name} — no key")
+            continue
+        try:
+            hits = await _PROVIDERS[name](q, 3, cfg)
+            mark = "✅" if hits else "⚠️"
+            note = "" if hits else " (reachable but returned nothing — often blocked on"
+            note += " datacenter IPs)" if not hits and name == "duckduckgo" else ""
+            lines.append(f"{mark} {name} — {len(hits)} result(s){note}")
+        except _aiohttp.ClientResponseError as e:
+            hint = " (key invalid or out of quota)" if e.status in (401, 403, 429) else ""
+            lines.append(f"❌ {name} — HTTP {e.status}{hint}")
+        except Exception as e:
+            lines.append(f"❌ {name} — {type(e).__name__}: {str(e)[:120]}")
+    return "\n".join(lines)
 
 
 def parse_serper(data: dict) -> list[SearchHit]:
