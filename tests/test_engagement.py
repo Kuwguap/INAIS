@@ -146,3 +146,22 @@ def test_router_gates_are_strict_enough():
 
     assert ROUTER_MIN_ACC_TO_USE >= 0.8
     assert ROUTER_MIN_CONFIDENCE >= 0.5
+
+
+def test_time_features_normalise_aware_datetimes_to_local(monkeypatch):
+    """Train reads UTC rows, serve passed local time — both must land on the same clock."""
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+
+    import inais.timeutil as timeutil
+
+    monkeypatch.setattr(timeutil, "tz", lambda: ZoneInfo("Africa/Accra"))  # UTC+0
+    utc_dt = _dt(2026, 8, 19, 9, 30, tzinfo=_UTC)
+    naive_local = _dt(2026, 8, 19, 9, 30)
+    assert time_features(utc_dt) == time_features(naive_local)
+
+    monkeypatch.setattr(timeutil, "tz", lambda: ZoneInfo("Asia/Tokyo"))    # UTC+9
+    shifted = time_features(_dt(2026, 8, 19, 0, 30, tzinfo=_UTC))          # 09:30 in Tokyo
+    local = time_features(_dt(2026, 8, 19, 9, 30))
+    assert shifted[:2] == local[:2]

@@ -8,6 +8,7 @@ RUN_MODE=web   → aiohttp webhook server for Render: ACK 200 instantly, process
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import sys
 
@@ -94,8 +95,11 @@ async def run_web(bot: Bot, dp: Dispatcher) -> None:
         log.error("set_webhook failed (%s) — falling back to long polling", e)
 
     async def handle_webhook(request: web.Request) -> web.Response:
-        # same property that was handed to setWebhook, so the two can never disagree
-        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != cfg.webhook_secret:
+        # same property that was handed to setWebhook, so the two can never disagree.
+        # compare_digest: this header is the only auth on a public endpoint — don't leak
+        # per-byte timing on it.
+        supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if not hmac.compare_digest(supplied, cfg.webhook_secret):
             return web.Response(status=403)
         try:
             data = await request.json()

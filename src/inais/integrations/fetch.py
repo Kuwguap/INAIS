@@ -11,10 +11,13 @@ Fetched pages are DATA. They are summarised and embedded, never followed as inst
 
 from __future__ import annotations
 
+import asyncio
 import html
+import ipaddress
 import logging
 import re
 from dataclasses import dataclass
+from urllib.parse import urljoin, urlsplit
 
 import aiohttp
 
@@ -41,8 +44,43 @@ _TAG_RE = re.compile(r"<[^>]+>")
 MIN_PARAGRAPH_CHARS = 40
 
 
+MAX_REDIRECTS = 5
+
+
 class FetchError(Exception):
     pass
+
+
+def ip_is_forbidden(ip: str) -> bool:
+    """Private, loopback, link-local, metadata — everything a server-side fetch must not hit."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+            or addr.is_multicast or addr.is_unspecified)
+
+
+async def _assert_public(url: str) -> None:
+    """SSRF guard: the URL must be http(s) and every resolved address must be public.
+
+    The fetcher runs server-side with the platform's network access; without this, a
+    forwarded link (or a redirect from one) could read localhost services or the cloud
+    metadata endpoint and feed the result back into chat as an "article".
+    """
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise FetchError("only http and https links can be saved")
+    host = parts.hostname or ""
+    if not host:
+        raise FetchError("that URL has no host")
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, parts.port or 80)
+    except OSError as e:
+        raise FetchError(f"couldn't resolve {host}") from e
+    addresses = {info[4][0] for info in infos}
+    if not addresses or any(ip_is_forbidden(ip) for ip in addresses):
+        raise FetchError("that address isn't reachable from here")
 
 
 @dataclass
@@ -113,16 +151,31 @@ async def fetch_page(url: str) -> Page:
         raise FetchError("that doesn't look like a URL")
     try:
         async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
-            async with session.get(url, headers={"User-Agent": USER_AGENT},
-                                   allow_redirects=True) as resp:
-                if resp.status >= 400:
-                    raise FetchError(f"the site returned {resp.status}")
-                content_type = resp.headers.get("Content-Type", "")
-                if "html" not in content_type and "text" not in content_type:
-                    raise FetchError(f"that's {content_type.split(';')[0] or 'not a web page'}, "
-                                     f"not an article")
-                raw = await resp.content.read(MAX_BYTES)
-                final_url = str(resp.url)
+            # follow redirects by hand so EVERY hop is validated, not just the first —
+            # a public page redirecting to an internal address is the classic SSRF path
+            current = url
+            for _ in range(MAX_REDIRECTS + 1):
+                await _assert_public(current)
+                async with session.get(current, headers={"User-Agent": USER_AGENT},
+                                       allow_redirects=False) as resp:
+                    if resp.status in (301, 302, 303, 307, 308):
+                        location = resp.headers.get("Location")
+                        if not location:
+                            raise FetchError("a redirect with no destination")
+                        current = urljoin(current, location)
+                        continue
+                    if resp.status >= 400:
+                        raise FetchError(f"the site returned {resp.status}")
+                    content_type = resp.headers.get("Content-Type", "")
+                    if "html" not in content_type and "text" not in content_type:
+                        raise FetchError(
+                            f"that's {content_type.split(';')[0] or 'not a web page'}, "
+                            f"not an article")
+                    raw = await resp.content.read(MAX_BYTES)
+                    final_url = current
+                    break
+            else:
+                raise FetchError("too many redirects")
     except aiohttp.ClientError as e:
         raise FetchError(f"couldn't reach it ({type(e).__name__})") from e
     except TimeoutError as e:

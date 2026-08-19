@@ -41,8 +41,17 @@ def time_features(dt) -> list[float]:
     Whether an unprompted message lands depends on WHEN as much as on what it says — 9am
     Tuesday and 1am Saturday are different users. Sin/cos keeps midnight adjacent to 23:00
     instead of maximally distant, which a raw hour number gets wrong.
+
+    Aware datetimes are normalised to the USER's timezone first: training reads UTC rows
+    from the database while scoring passed local time, so without this the clock features
+    were offset by the UTC delta between train and serve.
     """
     import math
+
+    if dt.tzinfo is not None:
+        from inais.timeutil import tz
+
+        dt = dt.astimezone(tz())
 
     hour_angle = 2 * math.pi * (dt.hour + dt.minute / 60) / 24
     day_angle = 2 * math.pi * dt.weekday() / 7
@@ -594,12 +603,35 @@ async def add_router_example(text: str, agent: str, classes: tuple[str, ...],
     return True
 
 
+async def _load_router_examples(classes: tuple[str, ...]):
+    """Router examples with labels rebuilt from the stored agent NAME, not the stored index.
+
+    The note column records which agent the LLM chose; deriving the class index from it at
+    load time means reordering or extending AGENTS can never silently mislabel old rows —
+    a name that no longer exists is skipped instead of pointing at the wrong class.
+    """
+    p = db.pool()
+    if p is None:
+        return np.empty((0, 0)), np.empty(0)
+    rows = await p.fetch(
+        "select embedding::text as embedding, note from nn_examples"
+        " where model_name = $1 order by id desc limit 4000", ROUTER_MODEL_NAME)
+    xs, ys = [], []
+    for r in rows:
+        if r["note"] in classes:
+            xs.append(_parse_vector(r["embedding"]))
+            ys.append(float(classes.index(r["note"])))
+    if not xs:
+        return np.empty((0, 0)), np.empty(0)
+    return np.array(xs, dtype=float), np.array(ys, dtype=float)
+
+
 async def train_router(classes: tuple[str, ...]) -> str:
     cfg = settings()
     p = db.pool()
     if p is None:
         return "router: no database."
-    x, y, _ = await _load_examples(ROUTER_MODEL_NAME)
+    x, y = await _load_router_examples(classes)
     n = x.shape[0]
     if n < ROUTER_MIN_EXAMPLES:
         return f"router: {n}/{ROUTER_MIN_EXAMPLES} examples — still learning from the LLM."

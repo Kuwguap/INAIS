@@ -198,3 +198,35 @@ def test_weekly_review_handles_empty_stats():
 @pytest.mark.parametrize("pct_done,expected", [(0, "0%"), (7, "100%")])
 def test_study_plan_adherence_percentage(pct_done, expected):
     assert expected in render_stats(_stats(study_plan={"total": 7, "done": pct_done}))
+
+
+# ---------- SSRF guard ----------
+
+@pytest.mark.parametrize("ip", [
+    "127.0.0.1", "10.0.0.5", "172.16.3.1", "192.168.1.1",   # loopback + private
+    "169.254.169.254",                                       # cloud metadata endpoint
+    "0.0.0.0", "224.0.0.1", "::1", "fe80::1", "fd00::1",
+])
+def test_forbidden_addresses_are_blocked(ip):
+    from inais.integrations.fetch import ip_is_forbidden
+
+    assert ip_is_forbidden(ip)
+
+
+@pytest.mark.parametrize("ip", ["93.184.216.34", "142.250.74.110", "2606:4700::6810:84e5"])
+def test_public_addresses_pass(ip):
+    from inais.integrations.fetch import ip_is_forbidden
+
+    assert not ip_is_forbidden(ip)
+
+
+def test_garbage_addresses_are_treated_as_forbidden():
+    from inais.integrations.fetch import ip_is_forbidden
+
+    assert ip_is_forbidden("not-an-ip")
+
+
+def test_redirect_cap_exists():
+    from inais.integrations.fetch import MAX_REDIRECTS
+
+    assert 1 <= MAX_REDIRECTS <= 10

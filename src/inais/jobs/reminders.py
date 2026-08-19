@@ -83,7 +83,7 @@ async def deliver_due(bot) -> int:
     rows = await p.fetch(
         "update reminders set fired = true"
         " where id in (select id from reminders where not fired and fire_at <= now()"
-        "              order by fire_at limit 10)"
+        "              order by fire_at limit 10 for update skip locked)"
         " returning id, text, fire_at, recurring_cron",
     )
     owner = cfg.owner_telegram_id
@@ -168,7 +168,7 @@ async def acknowledge_latest() -> dict | None:
         return None
     row = await p.fetchrow(
         "update reminders set acknowledged = true, nag_at = null"
-        " where id = (select id from reminders where not acknowledged and fired"
+        " where id = (select id from reminders where not acknowledged"
         "             order by fire_at desc limit 1)"
         " returning id, text, message_id")
     return dict(row) if row else None
@@ -179,7 +179,7 @@ async def any_awaiting_ack() -> bool:
     if p is None:
         return False
     return bool(await p.fetchval(
-        "select exists(select 1 from reminders where not acknowledged and fired)"))
+        "select exists(select 1 from reminders where not acknowledged)"))
 
 
 # ---------- pomodoro ----------
@@ -243,17 +243,22 @@ async def stats() -> str:
     p = db.pool()
     if p is None:
         return "No database configured."
+    zone = settings().timezone
     row = await p.fetchrow(
         "select"
-        " count(*) filter (where completed and started_at::date = current_date) as today,"
-        " count(*) filter (where completed and started_at >= current_date - 6) as week,"
-        " coalesce(sum(minutes) filter (where completed and started_at::date = current_date), 0)"
-        "   as mins_today"
+        " count(*) filter (where completed and (started_at at time zone $1)::date"
+        "   = (now() at time zone $1)::date) as today,"
+        " count(*) filter (where completed and (started_at at time zone $1)::date"
+        "   >= (now() at time zone $1)::date - 6) as week,"
+        " coalesce(sum(minutes) filter (where completed and (started_at at time zone $1)::date"
+        "   = (now() at time zone $1)::date), 0) as mins_today"
         " from pomodoro_sessions",
+        zone,
     )
     days = await p.fetch(
-        "select distinct started_at::date as d from pomodoro_sessions"
+        "select distinct (started_at at time zone $1)::date as d from pomodoro_sessions"
         " where completed order by d desc limit 60",
+        zone,
     )
     streak = 0
     today = datetime.now(tz()).date()
