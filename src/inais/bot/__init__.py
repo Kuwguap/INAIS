@@ -11,6 +11,7 @@ from inais.bot.routers import (
     alarms, approvals, capture, chat, commands, drills, facts, learning, menu,
     study, tracking, vision, voice,
 )
+from inais.bot.routers import persona as persona_router  # aliased: inais.persona is a module
 
 
 def create_dispatcher() -> Dispatcher:
@@ -29,6 +30,7 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(facts.router)
     dp.include_router(tracking.router)
     dp.include_router(commands.router)
+    dp.include_router(persona_router.router)
     dp.include_router(menu.router)
     dp.include_router(learning.router)
     dp.include_router(voice.router)

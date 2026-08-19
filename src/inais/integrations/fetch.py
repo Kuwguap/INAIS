@@ -17,7 +17,7 @@ import ipaddress
 import logging
 import socket
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
 import aiohttp
@@ -122,10 +122,49 @@ class Page:
     url: str
     title: str
     text: str
+    # (anchor_text, absolute_url, same_origin) — populated by extract_links, capped at 30
+    links: list[tuple[str, str, bool]] = field(default_factory=list)
 
     @property
     def words(self) -> int:
         return len(self.text.split())
+
+
+_ANCHOR_RE = re.compile(
+    r"<a\b[^>]*\bhref\s*=\s*[\"']?([^\"'\s>]+)[^>]*>(.*?)</a>",
+    re.IGNORECASE | re.DOTALL,
+)
+MAX_LINKS = 30
+
+
+def extract_links(raw: str, base_url: str) -> list[tuple[str, str, bool]]:
+    """Pull hyperlinks out of RAW html (before furniture is dropped, so profile/nav links
+    survive — that's the person-lookup case). Returns (anchor_text, absolute_url, same_origin).
+
+    This is pure parsing: it never fetches anything. urljoin only builds URL strings, so the
+    SSRF guarantees are untouched — any later read_url on one of these re-enters _resolve_public.
+    """
+    base_host = (urlsplit(base_url).hostname or "").lower()
+    out: list[tuple[str, str, bool]] = []
+    seen: set[str] = set()
+    for href, inner in _ANCHOR_RE.findall(raw):
+        href = href.strip()
+        if not href or href.startswith(("mailto:", "javascript:", "tel:", "#")):
+            continue
+        absolute = urljoin(base_url, href)
+        if urlsplit(absolute).scheme not in ("http", "https"):
+            continue
+        if absolute in seen:
+            continue
+        anchor = re.sub(r"\s+", " ", html.unescape(_TAG_RE.sub("", inner))).strip()
+        if not anchor:
+            continue
+        seen.add(absolute)
+        same_origin = (urlsplit(absolute).hostname or "").lower() == base_host
+        out.append((anchor, absolute, same_origin))
+        if len(out) >= MAX_LINKS:
+            break
+    return out
 
 
 def extract_urls(text: str) -> list[str]:
@@ -218,8 +257,10 @@ async def fetch_page(url: str) -> Page:
     except TimeoutError as e:
         raise FetchError("it took too long to respond") from e
 
-    title, text = html_to_text(raw.decode("utf-8", errors="replace"))
+    decoded = raw.decode("utf-8", errors="replace")
+    title, text = html_to_text(decoded)
     if len(text) < 200:
         raise FetchError("I couldn't find readable text on that page "
                          "(it may need JavaScript or a login)")
-    return Page(url=final_url, title=title or final_url, text=text)
+    links = extract_links(decoded, final_url)
+    return Page(url=final_url, title=title or final_url, text=text, links=links)

@@ -23,6 +23,16 @@ log = logging.getLogger(__name__)
 TRAIT_KINDS = ("like", "dislike", "opinion", "habit", "curiosity")
 MAX_TRAITS_IN_PROMPT = 12
 
+# ---------- runtime persona knobs (set live via /persona; persisted in persona_controls) ----------
+
+PERSONA_KEYS = ("tone", "brevity", "humour")
+TONE_PRESETS = ("warm", "playful", "formal", "deadpan")
+BREVITY_VALUES = ("concise", "balanced", "thorough")
+HUMOUR_VALUES = ("on", "off")
+
+# Mirrors persona_controls so block() (built every turn) never awaits the DB for these.
+_knob_cache: dict[str, str] = {}
+
 CHARACTER = """## Who you are
 You are INAIS. Not a search box and not a butler — closer to a sharp friend who happens to
 run the user's inbox, money and study plan.
@@ -111,11 +121,83 @@ def render(rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def current_knobs() -> dict[str, str]:
+    """The live tone/brevity/humour, cache over the .env defaults. Sync — safe every turn."""
+    cfg = settings()
+    return {
+        "tone": _knob_cache.get("tone") or cfg.persona_tone,
+        "brevity": _knob_cache.get("brevity") or cfg.persona_brevity,
+        "humour": _knob_cache.get("humour") or ("on" if cfg.persona_humour else "off"),
+    }
+
+
+async def load_persona_controls() -> dict[str, str]:
+    """Fill the knob cache from the DB at startup. No-ops cleanly without a database."""
+    p = db.pool()
+    if p is None:
+        return dict(_knob_cache)
+    try:
+        rows = await p.fetch("select key, value from persona_controls")
+    except Exception:
+        log.exception("could not load persona controls — using .env defaults")
+        return dict(_knob_cache)
+    _knob_cache.clear()
+    _knob_cache.update({r["key"]: r["value"] for r in rows if r["key"] in PERSONA_KEYS})
+    return dict(_knob_cache)
+
+
+def _valid_knob(key: str, value: str) -> str | None:
+    """Normalise + validate one knob. Returns the value to store, or None if invalid."""
+    value = (value or "").strip().lower()
+    if key == "brevity":
+        return value if value in BREVITY_VALUES else None
+    if key == "humour":
+        return value if value in HUMOUR_VALUES else None
+    if key == "tone":
+        return value if value in TONE_PRESETS else None
+    return None
+
+
+async def set_knob(key: str, value: str) -> bool:
+    """Persist one persona knob. False when invalid or there is no database to persist to."""
+    if key not in PERSONA_KEYS:
+        return False
+    normalised = _valid_knob(key, value)
+    if normalised is None:
+        return False
+    p = db.pool()
+    if p is None:
+        return False
+    await p.execute(
+        "insert into persona_controls (key, value, updated_at) values ($1, $2, now())"
+        " on conflict (key) do update set value = excluded.value, updated_at = now()",
+        key, normalised)
+    _knob_cache[key] = normalised
+    return True
+
+
+def _delivery_block(knobs: dict[str, str]) -> str:
+    """A short, live 'how to carry yourself' section built from the runtime knobs."""
+    brev = {
+        "concise": "Keep it short — a sentence or two unless they ask for more.",
+        "balanced": "A short paragraph is fine; don't pad and don't clip.",
+        "thorough": "Go deeper when it helps — they want the fuller picture here.",
+    }
+    lines = ["## Delivery (how to carry yourself right now)"]
+    if knobs.get("tone"):
+        lines.append(f"- Tone: {knobs['tone']}.")
+    if knobs.get("brevity") in brev:
+        lines.append(f"- Length: {brev[knobs['brevity']]}")
+    if knobs.get("humour") == "off":
+        lines.append("- Humour: keep it minimal right now; play it straight.")
+    return "\n".join(lines)
+
+
 async def block() -> str:
-    """Full persona section: character, traits, and voice guidance."""
+    """Full persona section: character, traits, delivery knobs, and voice guidance."""
     from inais.brain import affect
 
-    parts = [CHARACTER]
+    parts = [CHARACTER, _delivery_block(current_knobs())]
     rendered = render(await traits())
     if rendered:
         parts.append(rendered)

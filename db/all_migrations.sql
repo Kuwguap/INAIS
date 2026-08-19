@@ -1,4 +1,4 @@
--- INAIS — complete schema (migrations 001-022)
+-- INAIS — complete schema (migrations 001-023)
 -- Paste into the Supabase SQL editor and run once. Idempotent; safe to re-run.
 
 create extension if not exists vector;
@@ -782,6 +782,17 @@ update proactive_log set harvested = true where replied is null and not harveste
 
 alter table reminders add column if not exists last_fired_at timestamptz;
 
+-- ==================== 023_persona_controls.sql ====================
+-- Runtime persona controls: the owner tunes tone/brevity/humour live via /persona, and the
+-- choice persists across restarts. Text-valued (unlike the boolean runtime_flags), so it gets
+-- its own tiny table. The .env persona_* settings remain the defaults when a key is absent.
+
+create table if not exists persona_controls (
+    key        text primary key,       -- 'tone' | 'brevity' | 'humour'
+    value      text not null,
+    updated_at timestamptz not null default now()
+);
+
 -- ==================== bookkeeping ====================
 create table if not exists schema_migrations (
     filename   text primary key,
@@ -809,7 +820,8 @@ insert into schema_migrations (filename) values
     ('019_engagement.sql'),
     ('020_alarm.sql'),
     ('021_engagement_backfill.sql'),
-    ('022_reminder_lifecycle.sql')
+    ('022_reminder_lifecycle.sql'),
+    ('023_persona_controls.sql')
 on conflict do nothing;
 
 select count(*) as tables_created from information_schema.tables where table_schema = 'public';

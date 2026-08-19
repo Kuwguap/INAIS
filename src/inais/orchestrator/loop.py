@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 
 from inais import llm, persona, trace
 from inais.brain import signals
@@ -23,6 +24,14 @@ log = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 8
 SESSION_TTL_SECONDS = 30 * 60
+
+
+@dataclass
+class TurnResult:
+    """What a turn produced. `voice_sent` is True when the model already delivered a voice
+    note via the speak tool, so the deterministic backstop in the routers doesn't double-send."""
+    text: str
+    voice_sent: bool = False
 
 # chat_id -> (pinned_to_agent_model, last_activity_ts)
 _sessions: dict[int, tuple[bool, float]] = {}
@@ -57,8 +66,8 @@ def _build_system(agent: registry.AgentDef, memory_text: str, notes_text: str = 
 
 
 async def handle_text(bot, chat_id: int, text: str, source: str = "text",
-                      images: list[dict] | None = None) -> str:
-    """Main entry: route, run, persist. Returns the reply text.
+                      images: list[dict] | None = None) -> TurnResult:
+    """Main entry: route, run, persist. Returns the reply text (and whether voice was sent).
 
     `images` are Anthropic image blocks. They force the agent path: the cheap tier is
     text-only here, and an image is exactly the kind of turn that benefits from tools.
@@ -67,8 +76,9 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
     turn = trace.begin(chat_id, text, source=source)
     if not cfg.brain_enabled:
         trace.finish(error="brain not configured")
-        return ("I'm alive, but my brain isn't wired up yet — set ANTHROPIC_API_KEY and "
-                "OPENAI_API_KEY in .env to enable it. (M0 echo mode)\n\nYou said: " + text)
+        return TurnResult(
+            "I'm alive, but my brain isn't wired up yet — set ANTHROPIC_API_KEY and "
+            "OPENAI_API_KEY in .env to enable it. (M0 echo mode)\n\nYou said: " + text)
 
     try:
         # One embedding of the user's text, reused four ways: the LOCAL router, memory
@@ -114,12 +124,21 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
         # and if we spoke first recently, this reply is the engagement label
         asyncio.create_task(signals.mark_proactive_replied())
 
+        voice_sent = False
         if r.complexity == "simple":
             reply = await _simple_turn(agent, mem, history, text, notes, persona_text)
-            _touch_session(chat_id, pinned=False)
+            # Self-healing: a tool-less reply that hands the work back to the user ("run curl
+            # yourself") gets re-run through the agent path, which HAS web_search/read_url.
+            if router.looks_like_fetch_refusal(reply):
+                turn.route_source = f"{r.source}+escalated"
+                reply, voice_sent = await _agent_turn(
+                    bot, chat_id, agent, mem, history, text, notes, images, persona_text)
+                _touch_session(chat_id, pinned=True)
+            else:
+                _touch_session(chat_id, pinned=False)
         else:
-            reply = await _agent_turn(bot, chat_id, agent, mem, history, text,
-                                      notes, images, persona_text)
+            reply, voice_sent = await _agent_turn(bot, chat_id, agent, mem, history, text,
+                                                  notes, images, persona_text)
             _touch_session(chat_id, pinned=True)
     except Exception as e:
         trace.finish(error=f"{type(e).__name__}: {e}")
@@ -132,7 +151,7 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
     if asst_msg_id is not None:
         asyncio.create_task(store.embed_message(asst_msg_id, reply))
     trace.finish(reply=reply)
-    return reply
+    return TurnResult(reply, voice_sent)
 
 
 async def _simple_turn(agent, mem, history: list[dict], text: str, notes: str = "",
@@ -164,7 +183,7 @@ async def _run_tool(ctx, agent_name: str, call: dict) -> dict:
 
 async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: str,
                       notes: str = "", images: list[dict] | None = None,
-                      persona_text: str = "") -> str:
+                      persona_text: str = "") -> tuple[str, bool]:
     tools = registry.tools_for(agent.name)
     system = _build_system(agent, mem.render(), notes, persona_text)
     # images ride along in the user turn; text alone stays a plain string so cached
@@ -187,7 +206,7 @@ async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: 
         if reply.text:
             final_text = reply.text
         if reply.stop_reason != "tool_use":
-            return final_text
+            return final_text, ctx.voice_sent
 
         messages.append({"role": "assistant", "text": reply.text,
                          "tool_calls": reply.tool_calls})
@@ -197,4 +216,5 @@ async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: 
             *(_run_tool(ctx, agent.name, call) for call in reply.tool_calls))
         messages.append({"role": "tool_results", "results": list(results)})
 
-    return final_text or "I hit my tool-use limit for this turn — try narrowing the request."
+    fallback = final_text or "I hit my tool-use limit for this turn — try narrowing the request."
+    return fallback, ctx.voice_sent

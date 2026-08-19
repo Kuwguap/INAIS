@@ -306,6 +306,7 @@ shows what's connected.
 | `/brain` · `/train` | neural-network status · retrain on your signals |
 | `/usage` · `/reflect` | month-to-date AI spend · run memory consolidation now |
 | `/facts` · `/forget <id>` | browse and correct what it believes about you |
+| `/persona` | tune how it carries itself — tone, brevity, humour (persists) |
 | `/why [n]` | explain a recent answer: route, memory, tools, tokens, cost |
 | `/status` | what's running, what's pending, what's next |
 | `/pause` · `/resume` | halt / restart every background behaviour |

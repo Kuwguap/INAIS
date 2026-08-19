@@ -35,7 +35,7 @@ Money — /finance /spend /apps /usage
 Plan  — /tasks /brief /pomodoro /stats /weekly /contacts
 Brain — /learned /learn /curiosity /brain /train /facts /forget /mood /journal
 Dev   — /github
-System— /status /diag /why /pause /resume /reflect /reset /menu"""
+System— /status /diag /why /pause /resume /persona /reflect /reset /menu"""
 
 
 

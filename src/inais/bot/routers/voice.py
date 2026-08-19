@@ -8,12 +8,12 @@ import logging
 from aiogram import F, Router
 from aiogram.types import BufferedInputFile, Message
 
-from inais.bot.routers.chat import typing_indicator
+from inais.bot.routers.chat import _send_voice_reply, typing_indicator
 from inais.config import settings
 from inais.integrations import stt_tts
 from inais.orchestrator import loop
 from inais.study import review
-from inais.textutil import error_reply, split_message, wants_voice
+from inais.textutil import error_reply, split_message, strip_voice_label, wants_voice
 
 log = logging.getLogger(__name__)
 router = Router(name="voice")
@@ -54,17 +54,25 @@ async def on_voice(message: Message) -> None:
 
         await message.answer(f"🎙 “{text}”")
         try:
-            reply = await loop.handle_text(message.bot, message.chat.id, text, source="voice")
+            result = await loop.handle_text(message.bot, message.chat.id, text, source="voice")
         except Exception as e:
             log.exception("brain failed on voice turn")
-            reply = error_reply(e)
+            result = loop.TurnResult(error_reply(e))
 
-    for chunk in split_message(reply):
+    explicit = wants_voice(text)
+    display = strip_voice_label(result.text) if explicit else result.text
+    for chunk in split_message(display):
         await message.answer(chunk)
 
-    if settings().voice_replies or wants_voice(text):
+    if result.voice_sent:
+        return  # the model already voiced this turn via the speak tool
+    if explicit:
+        # explicit request → chunk long replies and surface a TTS failure (shared with chat)
+        await _send_voice_reply(message, result.text)
+    elif settings().voice_replies:
+        # opportunistic nicety: nobody asked, so a failure stays quiet (log only)
         try:
-            ogg = await stt_tts.synthesize_voice(reply)
+            ogg = await stt_tts.synthesize_voice(strip_voice_label(result.text))
             if ogg:
                 await message.answer_voice(BufferedInputFile(ogg, filename="reply.ogg"))
         except Exception:

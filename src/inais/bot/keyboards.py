@@ -167,3 +167,23 @@ def reminder_stop_kb(reminder_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🛑 Stop", callback_data=f"rstop:{reminder_id}"),
     ]])
+
+
+def persona_kb(current: dict) -> InlineKeyboardMarkup:
+    """Tune tone / brevity / humour. callback_data = psona:<field>:<value> (well under 64 B).
+    The active value in each row is marked with a ✅."""
+    from inais.persona import BREVITY_VALUES, HUMOUR_VALUES, TONE_PRESETS
+
+    def row(field: str, values) -> list[InlineKeyboardButton]:
+        return [
+            InlineKeyboardButton(
+                text=("✅ " if str(current.get(field, "")).lower() == v else "") + v,
+                callback_data=f"psona:{field}:{v}")
+            for v in values
+        ]
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        row("tone", TONE_PRESETS),
+        row("brevity", BREVITY_VALUES),
+        row("humour", HUMOUR_VALUES),
+    ])

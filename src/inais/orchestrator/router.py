@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from inais import llm
 from inais.config import settings
+from inais.integrations.fetch import URL_RE
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +20,18 @@ _PLANNER_HINTS = ("task", "todo", "to-do", "remind", "reminder", "deadline", "sc
                   "calendar", "agenda", "plan my day", "plan my week", "due ")
 _STUDY_HINTS = ("exam", "quiz", "revise", "revision", "chapter", "lecture", "notes",
                 "study", "read to me", "flashcard", "syllabus")
+# Web intent: kept SPECIFIC on purpose. Bare "find"/"search" would over-route ordinary
+# questions onto the expensive tool path; these phrases only fire on a real browse request.
+_WEB_HINTS = ("search the web", "google", "look up", "look it up", "search online",
+              "find online", "browse", "open this link", "open the link", "read this url",
+              "read this page", "on the web", "search for")
+
+# Phrases a cheap tool-less reply uses when it wrongly punts the work back to the user. A hit
+# means the simple path failed to do something it should have; the turn is re-run WITH tools.
+_FETCH_REFUSAL = ("run curl", "use curl", "i can't browse", "i cannot browse",
+                  "can't access the internet", "cannot access the internet", "enable browse",
+                  "paste the", "run this script", "fetch it yourself", "paste it here",
+                  "paste the json", "paste the output")
 
 
 @dataclass
@@ -38,12 +51,27 @@ def rule_route(text: str) -> Route | None:
         return Route("planner", "complex", "rule")
     if any(h in lower for h in _STUDY_HINTS):
         return Route("study", "complex", "rule")
+    # Browse/URL intent must reach the tool-bearing path. Placed AFTER the four agent hints
+    # (so "search my email" still routes to email) and BEFORE greetings. Any agent carries
+    # web_search/read_url as common tools, so forcing "complex" is the whole fix.
+    if URL_RE.search(text) or any(h in lower for h in _WEB_HINTS):
+        return Route("study", "complex", "rule")
     if len(text) <= 60 and text.rstrip("!.? ").lower() in (
         "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "good morning",
         "good night", "yo", "sup",
     ):
         return Route("study", "simple", "rule")
     return None
+
+
+def looks_like_fetch_refusal(reply: str) -> bool:
+    """True when a cheap tool-less reply tried to hand the work back to the user.
+
+    The simple path has no tools, so a browse/search request the classifier mislabelled
+    'simple' comes back as "run curl / paste the JSON yourself". When we see that, the turn
+    is re-run through the agent path, which DOES have web_search and read_url."""
+    lower = (reply or "").lower()
+    return any(p in lower for p in _FETCH_REFUSAL)
 
 
 async def route(text: str, vec: list[float] | None = None) -> Route:

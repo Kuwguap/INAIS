@@ -170,7 +170,7 @@ async def on_draft_reply(cb: CallbackQuery) -> None:
               f"message, then create_email_draft with reply_to_event_id={event_id}.")
     async with typing_indicator(cb.bot, chat_id):
         try:
-            reply = await loop.handle_text(cb.bot, chat_id, prompt)
+            reply = (await loop.handle_text(cb.bot, chat_id, prompt)).text
         except Exception:
             log.exception("draft-reply flow failed")
             reply = "Couldn't draft the reply — try asking me directly."

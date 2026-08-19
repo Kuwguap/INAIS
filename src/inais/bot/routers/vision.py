@@ -90,10 +90,10 @@ async def _handle(message: Message, data: bytes, media_type: str, caption: str) 
     prompt = caption.strip() or DEFAULT_PROMPT
     async with typing_indicator(message.bot, message.chat.id):
         try:
-            reply = await loop.handle_text(
+            reply = (await loop.handle_text(
                 message.bot, message.chat.id, prompt, source="image",
                 images=[image_block(data, media_type)],
-            )
+            )).text
         except Exception:
             log.exception("vision turn failed")
             reply = "Something broke while looking at that — try again in a moment."

@@ -49,7 +49,15 @@ _VOICE_REQUEST = re.compile(
     r"\b(as|in|with|send|reply|respond|answer|record|make|give)\b[^.?!]*\b"
     r"(voice ?note|voice ?message|voice ?memo|vn|audio|voice)\b"
     r"|\b(voice ?note|voice ?message|vn) (it|this|that|please|me)\b"
-    r"|^(voice|vn)\b",
+    r"|^(voice|vn)\b"
+    # "say it aloud", "read that out loud", "speak this", "read it to me" — phrasings that
+    # never mention "voice" but plainly ask to be spoken to.
+    r"|\b(say|read|speak)\b[^.?!]*\b(aloud|out ?loud)\b"
+    r"|\b(say|speak|read) (it|this|that)\b",
+    re.IGNORECASE)
+
+_VOICE_LABEL = re.compile(
+    r"^\s*[^\w]*\s*voice[ _-]?(note|message|memo)\b\s*(\(short\))?\s*[:\-–—]\s*",
     re.IGNORECASE)
 
 
@@ -60,3 +68,9 @@ def wants_voice(text: str) -> bool:
     failed — it typed "Voice note:" instead. An explicit request forces audio in the router.
     """
     return bool(_VOICE_REQUEST.search(text or ""))
+
+
+def strip_voice_label(text: str) -> str:
+    """Drop a leading "Voice note (short):" / "Voice note:" label the model sometimes writes
+    instead of actually producing audio. That label is never legitimate visible content."""
+    return _VOICE_LABEL.sub("", text or "", count=1).lstrip()

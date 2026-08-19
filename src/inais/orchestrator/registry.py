@@ -21,6 +21,9 @@ class ToolContext:
     bot: Any  # aiogram Bot
     chat_id: int
     agent: str
+    # set by the speak tool after a voice note goes out, so the router-level backstop that
+    # voices explicit requests doesn't send a duplicate on the same turn
+    voice_sent: bool = False
 
 
 @dataclass
@@ -310,6 +313,7 @@ async def _speak(ctx: ToolContext, args: dict) -> str:
     if not ogg:
         return "That was too long to voice — send it as text instead."
     await ctx.bot.send_voice(ctx.chat_id, BufferedInputFile(ogg, filename="inais.ogg"))
+    ctx.voice_sent = True
     return "Voice note delivered. Don't repeat it as text unless they ask."
 
 
@@ -399,7 +403,16 @@ async def _read_url(ctx: ToolContext, args: dict) -> str:
             log.exception("saving fetched page failed")
     body = page.text[:6000]
     more = "\n…(truncated)" if len(page.text) > 6000 else ""
-    return f"# {page.title}\n{page.url} · {page.words} words\n\n{body}{more}"
+    out = f"# {page.title}\n{page.url} · {page.words} words\n\n{body}{more}"
+    # Surface the page's links so "give me the links from that page" works without the model
+    # having to guess. Capped and already resolved to absolute URLs by fetch.extract_links.
+    if page.links:
+        lines = [
+            f"- {(text or url)[:60]} — {url}{'  (external)' if not same else ''}"
+            for text, url, same in page.links[:20]
+        ]
+        out += "\n\n## Links\n" + "\n".join(lines)
+    return out
 
 
 register_common_tool(Tool(

@@ -37,6 +37,11 @@ ruff check src tests scripts
 - `src/inais/orchestrator/` — `router.py` picks agent+model (rules → cheap OpenAI classifier);
   `loop.py` runs the Anthropic tool loop; `registry.py` maps agents → toolsets and owns the
   common tools; `swarm.py` runs specialists concurrently and holds the blackboard.
+  The `simple` path (`loop._simple_turn`) runs the cheap model with **no tools**; anything
+  that needs a tool (`web_search`, `read_url`, voice via `speak`) must route `complex`.
+  `rule_route` forces `complex` on URLs/browse verbs, and a `simple` reply that punts the work
+  back to the user ("run curl yourself", `looks_like_fetch_refusal`) is re-run through the
+  agent path. Don't advertise a tool the current path can't call.
 - `src/inais/agents/` — prompts + tool definitions per agent (email, finance, planner, study,
   plus `calendar_tools.py` when `CALENDAR_ENABLED`).
 - `src/inais/integrations/` — Gmail REST, Google Calendar, Binance read-only, GitHub read-only,
@@ -154,7 +159,11 @@ model). `normalise_verdict` is a pure function and is where validation belongs.
 
 `src/inais/persona.py` owns the character, the traits it has formed (`persona_traits`) and
 the guardrails on speaking unprompted. The persona block is built once per turn and injected
-ahead of the agent prompt.
+ahead of the agent prompt. It also owns the runtime delivery knobs — tone / brevity / humour,
+set live via `/persona`, persisted in `persona_controls`, cached like `controls` so `block()`
+never awaits the DB, and defaulted from the `persona_*` settings. `CHARACTER` stays a static
+constant (a test asserts it still advertises `web_search`/`read_url`); the knobs are appended
+as a separate `## Delivery` section, never by mutating `CHARACTER`.
 
 `brain/affect.py` produces one cached steering sentence from the user's own words — it must
 never use clinical language, and too little data means saying nothing. `brain/signals.py`
