@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     brave_api_key: str = ""
 
+    # --- Personality & proactivity ---
+    proactive_enabled: bool = False    # let it start conversations on its own
+    proactive_max_per_day: int = 3     # hard cap; an assistant that pesters gets muted
+    quiet_hours_start: int = 22        # never speaks unprompted between these hours
+    quiet_hours_end: int = 8
+    voice_notes_enabled: bool = True   # it may choose to reply by voice
+
     # --- Weekly review ---
     weekly_review_day: str = "sun"   # APScheduler day_of_week: mon..sun
     weekly_review_hour: int = 18

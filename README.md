@@ -304,6 +304,28 @@ shows what's connected.
 | `/diag` | test every provider and print the real error |
 | `/reset` · `/help` | fresh conversation context · overview |
 
+## Personality
+
+INAIS has a character rather than a customer-service voice: warm, direct, short by default,
+willing to disagree with you once and plainly, dry when it fits. It forms **its own opinions**
+from working with you (`form_opinion` writes them to `persona_traits`) and those opinions come
+back in every future prompt, so it stays recognisably the same across weeks.
+
+It also decides **when to talk instead of type** — the `speak` tool sends a voice note when
+hearing something beats reading it, and stays quiet for lists, numbers and links.
+
+With `PROACTIVE_ENABLED=true` it may start conversations: a deadline you'll miss, something it
+researched that answers a question you actually asked, a follow-up that's due. The bar is
+deliberately high and the guardrails are real — at most `PROACTIVE_MAX_PER_DAY` (default 3),
+never during quiet hours (default 22:00–08:00), never twice about the same thing, and the
+model is explicitly told that saying nothing is usually correct. Every unprompted message is
+logged in `proactive_log`.
+
+**On "sentient":** it isn't, and it won't pretend to be. The character is text it reads and
+text it writes back — there's no inner life behind it. What's real is the memory, the
+preferences it accumulates, and its opinions about your work, which is what actually makes it
+good company over months. It's told to be straight about this if you ask it directly.
+
 ## Staying in control
 
 Three controls exist because an assistant that acts on its own needs an off switch, an

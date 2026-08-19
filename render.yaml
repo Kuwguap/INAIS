@@ -138,6 +138,18 @@ services:
       - key: BRAVE_API_KEY
         sync: false                   # optional alternative
 
+      # ---------------- personality & proactivity ----------------
+      - key: PROACTIVE_ENABLED
+        value: "false"                # true ⇒ it may start conversations on its own
+      - key: PROACTIVE_MAX_PER_DAY
+        value: "3"
+      - key: QUIET_HOURS_START
+        value: "22"                   # no unprompted messages 22:00–08:00 local
+      - key: QUIET_HOURS_END
+        value: "8"
+      - key: VOICE_NOTES_ENABLED
+        value: "true"                 # it decides when a voice note beats text
+
       # ---------------- weekly review ----------------
       - key: WEEKLY_REVIEW_DAY
         value: sun                    # mon..sun, in TIMEZONE

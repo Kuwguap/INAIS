@@ -284,3 +284,72 @@ register_common_tool(Tool(
     },
     handler=_search_knowledge,
 ))
+
+
+# ---------- personality: its own voice, and its own opinions ----------
+
+async def _speak(ctx: ToolContext, args: dict) -> str:
+    """Reply as a voice note. The model decides when talking beats typing."""
+    from aiogram.types import BufferedInputFile
+
+    from inais.config import settings
+    from inais.integrations import stt_tts
+
+    if not settings().voice_notes_enabled:
+        return "Voice notes are switched off — reply as text."
+    text = str(args.get("text", "")).strip()
+    if not text:
+        return "Nothing to say."
+    try:
+        ogg = await stt_tts.synthesize_voice(text)
+    except Exception as e:
+        log.exception("speak tool failed")
+        return f"Couldn't record that ({e}) — send it as text instead."
+    if not ogg:
+        return "That was too long to voice — send it as text instead."
+    await ctx.bot.send_voice(ctx.chat_id, BufferedInputFile(ogg, filename="inais.ogg"))
+    return "Voice note delivered. Don't repeat it as text unless they ask."
+
+
+async def _form_opinion(ctx: ToolContext, args: dict) -> str:
+    from inais import persona
+
+    kind = str(args.get("kind", "opinion")).lower()
+    statement = str(args.get("statement", "")).strip()
+    if not statement:
+        return "An opinion needs a statement."
+    added = await persona.add_trait(kind, statement, str(args.get("reason", "")).strip())
+    return ("Noted — that's part of how you think now." if added
+            else "You already thought that.")
+
+
+register_common_tool(Tool(
+    name="speak",
+    description="Send your reply as a voice note instead of text. Use it when hearing it "
+                "beats reading it — encouragement, a story, a good-morning, or when they're "
+                "on the move. Not for lists, numbers or links.",
+    input_schema={
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "What to say aloud."}},
+        "required": ["text"],
+    },
+    handler=_speak,
+))
+
+register_common_tool(Tool(
+    name="form_opinion",
+    description="Record something you have come to think, like or dislike — from your own "
+                "experience of this user's work, not from what they told you to think. Use "
+                "it sparingly, when a view actually forms.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["like", "dislike", "opinion", "habit",
+                                                "curiosity"]},
+            "statement": {"type": "string"},
+            "reason": {"type": "string", "description": "What led you there."},
+        },
+        "required": ["kind", "statement"],
+    },
+    handler=_form_opinion,
+))

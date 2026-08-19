@@ -12,7 +12,7 @@ import asyncio
 import logging
 import time
 
-from inais import llm, trace
+from inais import llm, persona, trace
 from inais.brain import signals
 from inais.config import settings
 from inais.memory import retrieval, store
@@ -27,14 +27,10 @@ SESSION_TTL_SECONDS = 30 * 60
 # chat_id -> (pinned_to_agent_model, last_activity_ts)
 _sessions: dict[int, tuple[bool, float]] = {}
 
-BASE_PERSONA = """You are INAIS, {owner}'s personal assistant, living in Telegram.
-You are direct, warm and concise — this is a chat app, so prefer short answers unless the
-task genuinely needs depth. Plain text only (no markdown tables, minimal formatting).
-You have long-term memory: use remember_this when the user shares something durable,
-and search_memory when you might already know something relevant.
-When a request has independent parts owned by different specialists, use delegate to run them
-in parallel rather than doing everything sequentially yourself.
-Never claim to have sent an email — you can only create drafts that the user approves."""
+ASSISTANT_RULES = """You have long-term memory: use remember_this when the user shares
+something durable, and search_memory when you might already know something relevant.
+When a request has independent parts owned by different specialists, use delegate to run
+them in parallel rather than doing everything sequentially yourself."""
 
 
 def _session_pinned(chat_id: int) -> bool:
@@ -50,8 +46,9 @@ def reset_session(chat_id: int) -> None:
     _sessions.pop(chat_id, None)
 
 
-def _build_system(agent: registry.AgentDef, memory_text: str, notes_text: str = "") -> str:
-    parts = [BASE_PERSONA.format(owner="the user"), prompt_now(), agent.prompt]
+def _build_system(agent: registry.AgentDef, memory_text: str, notes_text: str = "",
+                  persona_text: str = "") -> str:
+    parts = [persona_text or persona.CHARACTER, ASSISTANT_RULES, prompt_now(), agent.prompt]
     if memory_text:
         parts.append(memory_text)
     if notes_text:
@@ -94,6 +91,7 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
                 log.exception("embedding the user turn failed — continuing without memory")
 
         mem = await retrieval.gather(agent.name, text, query_vec=user_vec)
+        persona_text = await persona.block()
         note_rows = await swarm.read_notes(agent.name, limit=5)
         notes = swarm.render_notes(note_rows)
         turn.notes_count = len(note_rows)
@@ -115,10 +113,11 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
         asyncio.create_task(signals.user_message_signal(text, embedding=user_vec))
 
         if r.complexity == "simple":
-            reply = await _simple_turn(agent, mem, history, text, notes)
+            reply = await _simple_turn(agent, mem, history, text, notes, persona_text)
             _touch_session(chat_id, pinned=False)
         else:
-            reply = await _agent_turn(bot, chat_id, agent, mem, history, text, notes, images)
+            reply = await _agent_turn(bot, chat_id, agent, mem, history, text,
+                                      notes, images, persona_text)
             _touch_session(chat_id, pinned=True)
     except Exception as e:
         trace.finish(error=f"{type(e).__name__}: {e}")
@@ -134,8 +133,10 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
     return reply
 
 
-async def _simple_turn(agent, mem, history: list[dict], text: str, notes: str = "") -> str:
-    messages = [{"role": "system", "content": _build_system(agent, mem.render(), notes)}]
+async def _simple_turn(agent, mem, history: list[dict], text: str, notes: str = "",
+                       persona_text: str = "") -> str:
+    messages = [{"role": "system",
+                 "content": _build_system(agent, mem.render(), notes, persona_text)}]
     messages += history[-8:]
     messages.append({"role": "user", "content": text})
     return await llm.openai_chat(
@@ -160,9 +161,10 @@ async def _run_tool(ctx, agent_name: str, call: dict) -> dict:
 
 
 async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: str,
-                      notes: str = "", images: list[dict] | None = None) -> str:
+                      notes: str = "", images: list[dict] | None = None,
+                      persona_text: str = "") -> str:
     tools = registry.tools_for(agent.name)
-    system = _build_system(agent, mem.render(), notes)
+    system = _build_system(agent, mem.render(), notes, persona_text)
     # images ride along in the user turn; text alone stays a plain string so cached
     # prefixes from earlier text-only turns still match
     user_content: str | list[dict] = text

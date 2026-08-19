@@ -145,6 +145,17 @@ keywords to `_TRACKABLE_RE` so candidates survive the cheap early-exits (receipt
 application mail are rarely flagged IMPORTANT by Gmail, so without that they never reach the
 model). `normalise_verdict` is a pure function and is where validation belongs.
 
+## Personality
+
+`src/inais/persona.py` owns the character, the traits it has formed (`persona_traits`) and
+the guardrails on speaking unprompted. The persona block is built once per turn and injected
+ahead of the agent prompt.
+
+Keep two things true: the character must never licence claiming feelings or claiming a mail
+was sent, and proactive messages stay gated on `may_speak_now()` — enabled flag, quiet hours,
+daily cap. `jobs/proactive.py` is told that NOTHING is usually the right answer; if you loosen
+that prompt, raise the bar somewhere else instead.
+
 ## Security invariants (do not weaken)
 
 1. Owner-only: middleware drops every update not from `OWNER_TELEGRAM_ID`.
