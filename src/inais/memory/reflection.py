@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 
-from inais import db, llm
+from inais import db, journal, llm
 from inais.config import settings
 from inais.memory import store
 
@@ -17,7 +17,8 @@ log = logging.getLogger(__name__)
 
 REFLECTION_SYSTEM = """You are the memory-consolidation process of INAIS, a personal assistant.
 You will receive: the user's current profile document, currently known facts (with ids),
-recent conversation transcripts, and email drafts the user manually edited before sending.
+recent conversation transcripts, email drafts the user manually edited before sending, and
+recent voice-journal entries with the mood labelled at the time.
 
 Return ONLY a JSON object:
 {
@@ -32,6 +33,10 @@ Guidelines:
 - Only supersede a fact when the transcripts clearly contradict it.
 - Derive style_rules from how the user EDITED drafts (tone, length, sign-off, phrasing) and
   from explicit instructions in the transcripts. Rules must be short imperatives.
+- From the JOURNAL, record only PATTERNS that repeat across several entries (a recurring
+  stressor, a routine that works, a subject they keep returning to). One bad evening is not a
+  pattern. Never record a fact that reads as a diagnosis or a judgement of the user; state
+  what they said, as their own words about their own life.
 - The profile is a rewrite, not an append: merge old + new, drop stale details.
 - If there is nothing to record, return empty lists and the unchanged profile."""
 
@@ -56,6 +61,7 @@ async def run_reflection() -> str:
         " where user_edit is not null and edit_processed_at is null limit 20",
     )
 
+    journal_entries = await journal.recent_for_reflection()
     transcript = "\n".join(f"[{m['role']}] {m['content'][:500]}" for m in msgs)
     facts_txt = "\n".join(f"(id={f['id']}) {f['statement']}" for f in facts) or "(none)"
     edits_txt = "\n\n".join(
@@ -67,6 +73,7 @@ async def run_reflection() -> str:
         f"CURRENT PROFILE:\n{profile or '(empty)'}\n\n"
         f"KNOWN FACTS:\n{facts_txt}\n\n"
         f"USER-EDITED DRAFTS:\n{edits_txt}\n\n"
+        f"JOURNAL (newest last):\n{journal.render_for_reflection(journal_entries)}\n\n"
         f"TRANSCRIPTS (last 36h):\n{transcript}"
     )
 
@@ -110,6 +117,9 @@ async def run_reflection() -> str:
 
     if data.get("profile"):
         await store.set_profile(data["profile"])
+
+    if journal_entries:
+        await journal.mark_reflected([e["id"] for e in journal_entries])
 
     if edited:
         await p.execute(

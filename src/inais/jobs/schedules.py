@@ -12,8 +12,9 @@ from inais.bot import keyboards
 from inais.brain import autonomy, curiosity, nn
 from inais.config import settings
 from inais.integrations import binance, gmail
-from inais.jobs import brief, github_watch, reminders
+from inais.jobs import brief, github_watch, reminders, weekly
 from inais.memory import reflection
+from inais.textutil import split_message
 
 log = logging.getLogger(__name__)
 
@@ -153,6 +154,15 @@ def setup(bot) -> AsyncIOScheduler:
         except Exception:
             log.exception("github poll failed")
 
+    async def weekly_review() -> None:
+        try:
+            text = await weekly.build_weekly_review()
+            if text:
+                for chunk in split_message(text):
+                    await bot.send_message(cfg.owner_telegram_id, chunk)
+        except Exception:
+            log.exception("weekly review failed")
+
     async def review_card() -> None:
         """One card a day; the session continues from the buttons if more are due."""
         try:
@@ -200,6 +210,8 @@ def setup(bot) -> AsyncIOScheduler:
                       id="morning_brief")
     scheduler.add_job(study_nudge, "cron", hour=cfg.study_nudge_hour, minute=0, id="study_nudge")
     scheduler.add_job(review_card, "cron", hour=cfg.review_card_hour, minute=0, id="review_card")
+    scheduler.add_job(weekly_review, "cron", day_of_week=cfg.weekly_review_day,
+                      hour=cfg.weekly_review_hour, minute=0, id="weekly_review")
     if cfg.github_enabled:
         scheduler.add_job(github_poll, "interval", minutes=cfg.github_poll_minutes,
                           id="github_poll", max_instances=1, coalesce=True)

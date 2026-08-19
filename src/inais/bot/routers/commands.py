@@ -31,6 +31,8 @@ Just talk to me (text or voice notes). I can:
 • 📚 study with you: send me a PDF, then ask questions, /quiz, or voice-note a recap
 • 👀 read photos: whiteboards, problem sets, receipts, error screenshots
 • 🐙 watch GitHub for reviews, mentions and failed builds
+• 🔗 read and save any link you forward me
+• 📓 keep a voice journal and track how your weeks are going
 • 🧠 remember things long-term, and teach myself while you're away
 
 Commands
@@ -44,6 +46,8 @@ Commands
 /learned — what I taught myself · /learn — learn something now
 /brain — neural-network status · /train — retrain it now
 /usage — this month's AI spend · /reflect — consolidate memory now
+/links — saved reading · /journal — voice journal · /mood
+/weekly — this week in review
 /github — reviews, mentions, red builds
 /contacts — people & follow-ups
 /facts — see & correct what I believe · /forget <id>
@@ -396,4 +400,18 @@ async def cmd_contacts(message: Message) -> None:
             line += f" — last spoke {r['last_contact']:%Y-%m-%d}"
         lines.append(line)
     for chunk in split_message("\n".join(lines)):
+        await message.answer(chunk)
+
+
+@router.message(Command("weekly"))
+async def cmd_weekly(message: Message) -> None:
+    from inais.jobs import weekly
+
+    await message.answer("📅 Pulling the week together…")
+    try:
+        text = await weekly.build_weekly_review()
+    except Exception:
+        log.exception("/weekly failed")
+        text = None
+    for chunk in split_message(text or "Not enough activity this week to review yet."):
         await message.answer(chunk)

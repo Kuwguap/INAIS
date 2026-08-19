@@ -1,4 +1,4 @@
--- INAIS — complete schema (migrations 001-015)
+-- INAIS — complete schema (migrations 001-017)
 -- Paste into the Supabase SQL editor and run once. Safe to re-run: every statement is
 -- idempotent. The final block records these as applied so scripts/apply_migrations.py
 -- will skip them if you later run it.
@@ -672,13 +672,72 @@ create table if not exists drill_answers (
     created_at  timestamptz not null default now()
 );
 
+-- ==================== 016_readlater.sql ====================
+-- Read-it-later: saved web pages live alongside PDFs in documents/doc_chunks, so everything
+-- the user has given the assistant is searchable through one path.
+
+alter table documents add column if not exists source_url text;
+alter table documents add column if not exists kind text not null default 'pdf';
+alter table documents add column if not exists summary text;
+
+do $$
+begin
+    if not exists (select 1 from pg_constraint where conname = 'documents_kind_check') then
+        alter table documents add constraint documents_kind_check
+            check (kind in ('pdf', 'link', 'note'));
+    end if;
+end $$;
+
+-- Saving the same URL twice should update, not duplicate.
+create unique index if not exists documents_url_uidx on documents (source_url)
+    where source_url is not null;
+create index if not exists documents_kind_idx on documents (kind, uploaded_at desc);
+
+-- ==================== 017_journal.sql ====================
+-- Voice journal. Entries are searchable (fts + embedding) so the nightly reflection can look
+-- for patterns across weeks rather than reacting to a single bad day.
+
+create table if not exists journal_entries (
+    id         bigserial primary key,
+    transcript text        not null,
+    embedding  vector(1536),
+    fts        tsvector generated always as (to_tsvector('english', transcript)) stored,
+    mood       text        not null default 'okay'
+        check (mood in ('great', 'good', 'okay', 'tired', 'stressed',
+                        'anxious', 'frustrated', 'low', 'sad')),
+    mood_score real        not null default 0,
+    topics     text[]      not null default '{}',
+    source     text        not null default 'voice' check (source in ('voice', 'text')),
+    reflected  boolean     not null default false,
+    created_at timestamptz not null default now()
+);
+create index if not exists journal_recent_idx on journal_entries (created_at desc);
+create index if not exists journal_fts_idx on journal_entries using gin (fts);
+create index if not exists journal_embedding_idx on journal_entries using hnsw (embedding vector_ip_ops);
+
 -- ==================== bookkeeping ====================
 create table if not exists schema_migrations (
     filename   text primary key,
     applied_at timestamptz not null default now()
 );
 insert into schema_migrations (filename) values
-    ('001_core.sql'), ('002_memory.sql'), ('003_email.sql'), ('004_finance.sql'), ('005_planner.sql'), ('006_study.sql'), ('007_brain.sql'), ('008_controls.sql'), ('009_github.sql'), ('010_contacts.sql'), ('011_applications.sql'), ('012_expenses.sql'), ('013_syllabus.sql'), ('014_review_items.sql'), ('015_drills.sql')
+    ('001_core.sql'),
+    ('002_memory.sql'),
+    ('003_email.sql'),
+    ('004_finance.sql'),
+    ('005_planner.sql'),
+    ('006_study.sql'),
+    ('007_brain.sql'),
+    ('008_controls.sql'),
+    ('009_github.sql'),
+    ('010_contacts.sql'),
+    ('011_applications.sql'),
+    ('012_expenses.sql'),
+    ('013_syllabus.sql'),
+    ('014_review_items.sql'),
+    ('015_drills.sql'),
+    ('016_readlater.sql'),
+    ('017_journal.sql')
 on conflict do nothing;
 
 select count(*) as tables_created from information_schema.tables where table_schema = 'public';

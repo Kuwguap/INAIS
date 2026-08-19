@@ -15,6 +15,8 @@ A single-user assistant that lives in **Telegram** (text + voice) with a hybrid
   timetable and it goes through the same brain, so it can turn a timetable into tasks or
   explain an error from a screenshot
 - 🐙 **GitHub** — read-only watch for PRs awaiting your review, issue mentions, and red CI
+- 🔗 **read it later** — forward a link; it's fetched, summarised and made searchable
+- 📓 **voice journal** — talk about your week; moods are tracked and patterns surface
 - 🤝 **contacts** — who you met, where, when you last spoke, and when to follow up
 - 📋 **applications** — job/scholarship pipeline built from your inbox: confirmations,
   interview invites, assessments and rejections move each row along by themselves
@@ -202,6 +204,33 @@ result); viva and technical answers are graded against *your own* material, neve
 knowledge. Five behavioral questions ship as a starting deck; ask for
 "viva questions on <topic>" to generate more from your PDFs.
 
+### Read it later, journal and the weekly review
+
+**Forward any link** and it's fetched, stripped to readable text, summarised, and embedded
+into the same `doc_chunks` the PDFs use — so `search_documents`, the narrator and quiz
+generation all work on saved articles with no extra machinery. `/links` lists them. A link
+inside a sentence stays a conversation; only a message that is essentially just a URL is
+treated as a save, so asking "what do you think of <link>?" still gets answered.
+
+Extraction is deliberately dependency-free (no readability library) — it drops scripts, nav,
+headers and footers, keeps paragraph-sized blocks, and de-duplicates repeated boilerplate.
+Pages that need JavaScript or a login will fail with a clear message rather than saving
+navigation text as an article.
+
+**`/journal`** arms a state where your next voice note becomes an entry: transcript, embedding,
+and a mood label from the cheap model. `/mood` shows a sparkline over the last 14 days (or
+`/mood 30`), the most common moods, and recurring topics. The nightly reflection reads
+unreflected entries and may write facts — but only for **patterns that repeat across several
+entries**, never a single bad evening, and never anything phrased as a diagnosis. Mood scores
+are a coarse ordering for trending, not a measurement of anything.
+
+**The weekly review** lands at `WEEKLY_REVIEW_DAY`/`WEEKLY_REVIEW_HOUR` (default Sunday 18:00):
+tasks completed vs overdue, focus minutes, study-plan adherence, cards and drills done, AI
+spend, what the autonomy loop taught itself, and three concrete focuses for next week. The
+statistics come from SQL; the model only ever sees real counts and is told to ground every
+suggestion in them — which is what stops it inventing progress that never happened. `/weekly`
+runs it on demand, and a genuinely empty week produces nothing rather than noise.
+
 ### M10 — Parallel sub-agents
 Ask something spanning several specialists — *"check my inbox, my portfolio, and plan my
 afternoon"* — and the orchestrator fans out to sub-agents concurrently instead of working
@@ -244,6 +273,9 @@ really does compound: it knows more about your world every week.
 | `/pomodoro [min] [label]` · `/pomodoro stop` · `/stats` | focus timer, streaks |
 | `/quiz [topic]` · `/plan [exam]` · `/docs` | multiple-choice quiz · study plan · documents |
 | `/card` · `/deck` | daily spaced-repetition review · deck stats |
+| `/links` | saved reading, newest first |
+| `/journal` · `/mood [days]` | record an entry · mood trend with a sparkline |
+| `/weekly` | the week in review, on demand |
 | `/drill [category]` | spoken interview/viva practice, graded out loud |
 | `/review [topic]` | brain-dump: recap out loud, get corrections and gaps |
 | `/finance` | portfolio snapshot with 24h change |
@@ -371,6 +403,9 @@ took over.
 | — | Vision (file) | send a PNG screenshot as a *file*, not a photo | it is read, not answered with "I can only ingest PDFs" |
 | — | GitHub | `/github` | reviews/mentions/red builds with links; a new one arrives unprompted within `GITHUB_POLL_MINUTES` |
 | — | Contacts | "I met Ama from the robotics lab, follow up in 1 day" → `/contacts` | listed with the follow-up; it appears in tomorrow's morning brief |
+| — | Read it later | forward a link | summary + "searchable now"; `/links` lists it; asking about its content works |
+| — | Journal | `/journal`, then a voice note | mood label echoed back; `/mood` shows the trend |
+| — | Weekly review | `/weekly` | real counts for the week + three grounded focuses |
 | — | Syllabus | send a syllabus PDF | dated items listed with Add all / ➕ / Skip; approved ones appear in `/tasks` with correct dates |
 | — | Review cards | `/card`, answer Got it / Missed | interval changes as stated; a card arrives daily at `REVIEW_CARD_HOUR` |
 | — | Drills | `/drill`, answer by voice | question arrives as text + voice; feedback has Covered / Corrections / Gaps / Well done |

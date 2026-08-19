@@ -16,7 +16,7 @@ from inais.config import settings
 log = logging.getLogger(__name__)
 
 SCOUT_SYSTEM = """You are the curiosity process of INAIS, a personal assistant. From the
-material below (recent conversations, the user's exam topics, their open tasks), pick topics
+material below (recent conversations, exam topics, open tasks, and articles they saved to read), pick topics
 this assistant should go and research on its own so it can help better next time.
 
 Return ONLY JSON: {"topics": [{"topic": "...", "reason": "...", "priority": 0.0-1.0}]}
@@ -48,6 +48,9 @@ async def scout(limit: int = 5) -> int:
         "select name, topics from exams where date >= current_date order by date limit 3")
     tasks = await p.fetch(
         "select title from tasks where status = 'open' order by due nulls last limit 15")
+    from inais.study import links
+
+    saved_links = await links.for_curiosity()
     known = await p.fetch("select topic from knowledge order by learned_at desc limit 40")
     queued = await p.fetch(
         "select topic from curiosity_queue where status in ('queued','researching') limit 40")
@@ -63,7 +66,9 @@ async def scout(limit: int = 5) -> int:
         system=SCOUT_SYSTEM,
         messages=[{"role": "user", "content":
                    f"RECENT CONVERSATIONS:\n{transcript}\n\nEXAM TOPICS:\n{exam_txt}\n\n"
-                   f"OPEN TASKS:\n{task_txt}\n\nALREADY KNOWN topics:\n{known_txt}\n\n"
+                   f"OPEN TASKS:\n{task_txt}\n\n"
+                   f"ARTICLES THEY SAVED TO READ:\n{saved_links or '(none)'}\n\n"
+                   f"ALREADY KNOWN topics:\n{known_txt}\n\n"
                    f"ALREADY QUEUED topics:\n{queued_txt}"}],
         max_tokens=900,
         purpose="curiosity_scout",

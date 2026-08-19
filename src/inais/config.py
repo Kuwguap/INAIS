@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     brave_api_key: str = ""
 
+    # --- Weekly review ---
+    weekly_review_day: str = "sun"   # APScheduler day_of_week: mon..sun
+    weekly_review_hour: int = 18
+
     # --- Tracking (applications + expenses from email) ---
     default_currency: str = "USD"   # display currency for /spend totals
 

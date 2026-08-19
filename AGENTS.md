@@ -48,6 +48,10 @@ ruff check src tests scripts
   `autonomy.py` (idle-triggered cycles).
 - `src/inais/controls.py` — persisted runtime flags (the pause switch), cached for hot paths.
 - `src/inais/trace.py` — per-turn ring buffer (route, memory, tools, tokens, cost) behind /why.
+- `src/inais/journal.py` — voice journal + mood trending (scores are an ordering, not a
+  measurement; reflection may only record repeated patterns, never one entry).
+- `src/inais/jobs/weekly.py` — weekly review: statistics come from SQL, the model only
+  suggests focuses from those numbers. Never let it generate the statistics themselves.
 - `src/inais/jobs/` — `schedules.py` registers every APScheduler job, owns the module-level
   scheduler handle, and exposes `pause_jobs`/`resume_jobs`/`job_overview`; `reminders.py`
   (delivery + pomodoro), `brief.py` (morning brief, study nudge).
