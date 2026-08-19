@@ -7,8 +7,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from inais.bot.middleware import DedupeMiddleware, OwnerOnlyMiddleware
 from inais.bot.routers import (
-    approvals, capture, chat, commands, drills, facts, learning, menu, study,
-    tracking, vision, voice,
+    alarms, approvals, capture, chat, commands, drills, facts, learning, menu,
+    study, tracking, vision, voice,
 )
 
 
@@ -18,6 +18,7 @@ def create_dispatcher() -> Dispatcher:
     dp.update.outer_middleware(OwnerOnlyMiddleware())
     # FSM-owning routers first (their states must win over plain chat), then commands,
     # then study (documents/quizzes), learning feedback, voice, and finally free chat.
+    dp.include_router(alarms.router)   # 'stop' must beat the brain when an alarm rings
     dp.include_router(approvals.router)
     dp.include_router(vision.router)   # before study: study's F.document catches everything
     dp.include_router(capture.router)  # link + journal capture, before chat/voice

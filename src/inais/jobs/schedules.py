@@ -123,6 +123,7 @@ def setup(bot) -> AsyncIOScheduler:
     async def reminder_tick() -> None:
         try:
             await reminders.deliver_due(bot)
+            await reminders.nag_unacknowledged(bot)
             await reminders.finish_due(bot)
         except Exception:
             log.exception("reminder tick failed")

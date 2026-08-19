@@ -92,6 +92,14 @@ services:
       - key: DAILY_SUMMARY_HOUR
         value: "8"
 
+      # ---------------- reminders (alarm behaviour) ----------------
+      - key: REMINDER_BURST
+        value: "4"                    # ping messages per firing, deleted after the sound
+      - key: REMINDER_NAG_MINUTES
+        value: "3"                    # first re-ping delay; doubles each nag
+      - key: REMINDER_MAX_NAGS
+        value: "3"
+
       # ---------------- planner ----------------
       - key: MORNING_BRIEF_HOUR
         value: "7"

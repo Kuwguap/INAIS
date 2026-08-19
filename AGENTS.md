@@ -182,7 +182,9 @@ that prompt, raise the bar somewhere else instead.
    the alphabets Telegram and URLs accept, and setWebhook must use the same value the request
    check compares against.
 7. Idempotency: updates deduped by `update_id`; draft sends guarded by an atomic status
-   transition; reminders claimed with an atomic `update ... returning`.
+   transition; reminders claimed with an atomic `update ... returning`. The alarm state
+   machine is fired → unacknowledged (nagging) → acknowledged; the typed "stop" handler uses
+   a guarded filter (`any_awaiting_ack`) so the word only gets claimed while something rings.
 8. `/pause` must stop every background behaviour. Any new autonomous path (a job, a loop, a
    self-triggered action) has to check `controls.is_paused()` if it can run outside the
    scheduler — the scheduler pause only covers registered jobs.

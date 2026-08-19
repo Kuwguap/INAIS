@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     binance_symbols: str = "BTCUSDT,ETHUSDT"
     daily_summary_hour: int = 8
 
+    # --- Reminders (alarm behaviour) ---
+    reminder_burst: int = 4          # extra ping messages per firing (sent then deleted)
+    reminder_nag_minutes: int = 3    # first re-ping delay; doubles each time
+    reminder_max_nags: int = 3       # give up after this many re-pings
+
     # --- Planner (M8) ---
     morning_brief_hour: int = 7
     calendar_enabled: bool = False

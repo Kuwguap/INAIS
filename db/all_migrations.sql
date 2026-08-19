@@ -1,4 +1,4 @@
--- INAIS — complete schema (migrations 001-019)
+-- INAIS — complete schema (migrations 001-020)
 -- Paste into the Supabase SQL editor and run once. Idempotent; safe to re-run.
 
 create extension if not exists vector;
@@ -754,6 +754,19 @@ create index if not exists proactive_unharvested_idx on proactive_log (sent_at)
 
 alter table nn_examples add column if not exists context_features real[] not null default '{}';
 
+-- ==================== 020_alarm.sql ====================
+-- Alarm-grade reminders: a reminder is not delivered until the user says so.
+-- fired = the first send happened; acknowledged = the user pressed Stop (or typed it).
+-- Existing rows default to acknowledged so history does not start nagging on deploy.
+
+alter table reminders add column if not exists acknowledged boolean not null default true;
+alter table reminders add column if not exists nag_count int not null default 0;
+alter table reminders add column if not exists nag_at timestamptz;
+alter table reminders add column if not exists message_id bigint;
+
+create index if not exists reminders_nag_idx on reminders (nag_at)
+    where not acknowledged;
+
 -- ==================== bookkeeping ====================
 create table if not exists schema_migrations (
     filename   text primary key,
@@ -778,7 +791,8 @@ insert into schema_migrations (filename) values
     ('016_readlater.sql'),
     ('017_journal.sql'),
     ('018_persona.sql'),
-    ('019_engagement.sql')
+    ('019_engagement.sql'),
+    ('020_alarm.sql')
 on conflict do nothing;
 
 select count(*) as tables_created from information_schema.tables where table_schema = 'public';

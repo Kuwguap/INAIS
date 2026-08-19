@@ -161,3 +161,9 @@ def drill_kb(question_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="⏭ Another question", callback_data="drillnext"),
         InlineKeyboardButton(text="🛑 Stop", callback_data="drillstop"),
     ]])
+
+
+def reminder_stop_kb(reminder_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🛑 Stop", callback_data=f"rstop:{reminder_id}"),
+    ]])

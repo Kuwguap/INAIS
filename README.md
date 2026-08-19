@@ -114,7 +114,12 @@ an alarm if it passes `MONTHLY_BUDGET_USD`.
 
 ### M8 — Planner
 Run `python scripts/apply_migrations.py` again and it's live.
-**Verify:** *"remind me in 2 minutes to stretch"* → the ping arrives. *"add task: finish lab
+**Verify:** *"remind me in 2 minutes to stretch"* → the reminder arrives **loudly**: the
+message with a 🛑 Stop button, plus a burst of extra pings (each one a notification sound)
+that delete themselves so only the reminder remains. Ignore it and it re-pings on a doubling
+interval (3, 6, 12 min by default) before giving up and saying so. Stop it with the button or
+by typing "stop" — bare stop phrases only, so ordinary sentences containing the word still
+reach the brain. *"add task: finish lab
 report by Friday, school"* → `/tasks` lists it. `/pomodoro 1 revision` → break ping after a
 minute, then `/stats`. A brief lands each morning at `MORNING_BRIEF_HOUR`.
 
