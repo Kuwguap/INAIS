@@ -55,7 +55,10 @@ async def check_openai() -> str:
 async def check_agent_brain() -> str:
     """Tests the provider that actually runs the agent loop, whichever it is."""
     cfg = settings()
-    provider, model = cfg.agent_provider, cfg.resolved_agent_model
+    provider = llm.effective_provider()
+    model = cfg.openai_agent_model if provider == "openai" else cfg.agent_model
+    if llm.provider_override():
+        provider = f"{provider}, auto-switched from anthropic"
     if provider == "anthropic" and not cfg.anthropic_api_key:
         return f"{OFF} agent brain — BRAIN_PROVIDER=anthropic but no ANTHROPIC_API_KEY"
     if provider == "openai" and not cfg.openai_api_key:

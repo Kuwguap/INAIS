@@ -339,26 +339,58 @@ def tools_to_openai(tools: list[dict]) -> list[dict]:
     ]
 
 
+# A key that is missing, revoked, unbilled or lacks the model is not a transient error —
+# retrying it forever just means a dead assistant. When OpenAI is available, switch to it for
+# the rest of the process and say so loudly.
+_ANTHROPIC_FATAL = ("authentication_error", "invalid x-api-key", "permission_error",
+                    "not_found_error", "credit balance", "billing", "quota")
+_provider_override: str | None = None
+
+
+def effective_provider() -> str:
+    """The provider actually in use, which may differ from config after a failure."""
+    return _provider_override or settings().agent_provider
+
+
+def provider_override() -> str | None:
+    return _provider_override
+
+
+def _anthropic_is_unusable(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _ANTHROPIC_FATAL)
+
+
+def _switch_to_openai(reason: str) -> bool:
+    """Returns True when the fallback is available and now active."""
+    global _provider_override
+    if not settings().openai_api_key:
+        return False
+    if _provider_override != "openai":
+        _provider_override = "openai"
+        log.error("Anthropic is unusable (%s) — running the brain on OpenAI for the rest of "
+                  "this process. Set BRAIN_PROVIDER=openai to make it permanent.", reason)
+    return True
+
+
 async def agent_tools(*, system: str, messages: list[dict], tools: list[dict],
                       max_tokens: int = 2048, purpose: str = "agent",
                       model: str | None = None) -> AgentReply:
-    """One turn of a tool-using agent loop, on whichever provider is configured."""
+    """One turn of a tool-using agent loop, on whichever provider is in use."""
     cfg = settings()
-    provider = cfg.agent_provider
-    chosen = model or cfg.resolved_agent_model
+    provider = effective_provider()
+    chosen = model or (cfg.openai_agent_model if provider == "openai"
+                       else cfg.resolved_agent_model)
 
     if provider == "anthropic":
-        resp = await anthropic_message(
-            model=chosen,
-            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-            messages=to_anthropic_messages(messages),
-            tools=tools, max_tokens=max_tokens, purpose=purpose,
-        )
-        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-        calls = [{"id": b.id, "name": b.name, "input": dict(b.input or {})}
-                 for b in resp.content if getattr(b, "type", "") == "tool_use"]
-        return AgentReply(text=text, tool_calls=calls,
-                          stop_reason="tool_use" if calls else "end")
+        try:
+            return await _agent_tools_anthropic(
+                system=system, messages=messages, tools=tools,
+                max_tokens=max_tokens, purpose=purpose, model=chosen)
+        except Exception as e:
+            if not (_anthropic_is_unusable(e) and _switch_to_openai(str(e)[:150])):
+                raise
+            chosen = model or cfg.openai_agent_model   # fall through to OpenAI below
 
     extra: dict = {"tools": tools_to_openai(tools)} if tools else {}
     resp = await _chat_completion(
@@ -376,6 +408,21 @@ async def agent_tools(*, system: str, messages: list[dict], tools: list[dict],
                       stop_reason="tool_use" if calls else "end")
 
 
+async def _agent_tools_anthropic(*, system: str, messages: list[dict], tools: list[dict],
+                                 max_tokens: int, purpose: str, model: str) -> AgentReply:
+    resp = await anthropic_message(
+        model=model,
+        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+        messages=to_anthropic_messages(messages),
+        tools=tools, max_tokens=max_tokens, purpose=purpose,
+    )
+    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+    calls = [{"id": b.id, "name": b.name, "input": dict(b.input or {})}
+             for b in resp.content if getattr(b, "type", "") == "tool_use"]
+    return AgentReply(text=text, tool_calls=calls,
+                      stop_reason="tool_use" if calls else "end")
+
+
 async def agent_text(*, system: str, user: str, max_tokens: int = 1500,
                      purpose: str = "agent", model: str | None = None,
                      cheap: bool = False) -> str:
@@ -385,15 +432,25 @@ async def agent_text(*, system: str, user: str, max_tokens: int = 1500,
     synthesis) where the strong model is not worth its price.
     """
     cfg = settings()
+    provider = effective_provider()
     if model is None:
-        model = cfg.resolved_subagent_model if cheap else cfg.resolved_agent_model
-    if cfg.agent_provider == "anthropic":
-        resp = await anthropic_message(
-            model=model, system=system,
-            messages=[{"role": "user", "content": user}],
-            max_tokens=max_tokens, purpose=purpose,
-        )
-        return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+        if provider == "openai":
+            model = cfg.triage_model if cheap else cfg.openai_agent_model
+        else:
+            model = cfg.subagent_model if cheap else cfg.agent_model
+    if provider == "anthropic":
+        try:
+            resp = await anthropic_message(
+                model=model, system=system,
+                messages=[{"role": "user", "content": user}],
+                max_tokens=max_tokens, purpose=purpose,
+            )
+            return "".join(b.text for b in resp.content
+                           if getattr(b, "type", "") == "text").strip()
+        except Exception as e:
+            if not (_anthropic_is_unusable(e) and _switch_to_openai(str(e)[:150])):
+                raise
+            model = cfg.triage_model if cheap else cfg.openai_agent_model
     return (await openai_chat(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],

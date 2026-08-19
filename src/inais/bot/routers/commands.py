@@ -306,8 +306,13 @@ async def cmd_status(message: Message) -> None:
     else:
         reason = db.last_error() or "SUPABASE_DB_URL not set"
         lines.append(f"• database: OFF — {reason}")
+    from inais import llm
+
+    provider = llm.effective_provider()
+    note = " (auto-switched: Anthropic key rejected)" if llm.provider_override() else ""
+    model = cfg.openai_agent_model if provider == "openai" else cfg.agent_model
     lines.append(f"• brain: {'on' if cfg.brain_enabled else 'OFF'} "
-                 f"({cfg.agent_provider}: {cfg.resolved_agent_model})")
+                 f"({provider}: {model}){note}")
     lines.append(f"• routing/triage: {cfg.triage_model}")
     lines.append(f"• binance: {'on' if cfg.binance_enabled else 'off'}")
     lines.append(f"• calendar: {'on' if cfg.calendar_enabled else 'off'}")

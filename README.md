@@ -449,6 +449,14 @@ because Sonnet is the stronger tool-user, and OpenAI otherwise.
 If `/diag` reports the agent brain failing with a model error, the model id isn't on your
 account: change `AGENT_MODEL`/`OPENAI_AGENT_MODEL` or flip the provider.
 
+If the Anthropic key is rejected outright (401, no credit, missing model) the bot **switches
+itself to OpenAI** for the rest of the process rather than failing every agent turn, logs it,
+and shows `auto-switched` in `/status`. Set `BRAIN_PROVIDER=openai` to make it permanent —
+the switch is per-process and resets on redeploy.
+
+`/status` always names the provider and model actually in use, so it's the fastest way to
+confirm an env var took effect.
+
 ## Troubleshooting
 
 **"invalid DSN: scheme is expected to be either postgresql or postgres, got 'https'"**

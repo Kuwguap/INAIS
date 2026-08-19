@@ -74,8 +74,9 @@ ruff check src tests scripts
   for the answer starves complex turns — `completion_budget` adds headroom on top of the
   request. A starved turn returns an empty message with `finish_reason=length` and no
   exception, which `_chat_completion` retries; never assume a 200 means output.
-- Show `cfg.resolved_agent_model` / `cfg.agent_provider` in user-facing text, never
-  `cfg.agent_model` — the latter is the Anthropic setting and lies when running on OpenAI.
+- Read the live provider from `llm.effective_provider()`, not config: a rejected Anthropic
+  key auto-switches the process to OpenAI, and config alone would misreport it.
+- Show the resolved provider/model in user-facing text, never bare `cfg.agent_model` — the latter is the Anthropic setting and lies when running on OpenAI.
 - Latency on reasoning models is dominated by thinking, not tokens: keep classifiers at
   `reasoning_effort=minimal` and the agent at `OPENAI_REASONING_EFFORT` (default low).
 - Embed the user's turn ONCE and pass the vector to retrieval, `store.embed_message` and the

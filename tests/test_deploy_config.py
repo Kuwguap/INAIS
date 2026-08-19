@@ -376,3 +376,31 @@ def test_status_reports_the_model_actually_in_use():
                     agent_model="claude-sonnet-5", openai_agent_model="gpt-5")
     assert cfg.resolved_agent_model == "gpt-5"
     assert cfg.agent_provider == "openai"
+
+
+# ---------- automatic provider fallback ----------
+
+def test_a_dead_anthropic_key_is_recognised_as_fatal():
+    """The real error: 401 invalid x-api-key. Retrying that forever is a dead assistant."""
+    from inais.llm import _anthropic_is_unusable
+
+    real = ("Error code: 401 - {'type': 'error', 'error': {'type': 'authentication_error', "
+            "'message': 'invalid x-api-key'}}")
+    assert _anthropic_is_unusable(Exception(real))
+
+
+def test_other_fatal_anthropic_conditions_are_covered():
+    from inais.llm import _anthropic_is_unusable
+
+    for message in ("not_found_error: model not found",
+                    "Your credit balance is too low",
+                    "permission_error"):
+        assert _anthropic_is_unusable(Exception(message))
+
+
+def test_transient_errors_do_not_trigger_a_switch():
+    """A timeout or overload must not permanently move the brain off its configured provider."""
+    from inais.llm import _anthropic_is_unusable
+
+    for message in ("529 overloaded", "request timed out", "internal server error"):
+        assert not _anthropic_is_unusable(Exception(message))
