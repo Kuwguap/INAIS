@@ -76,7 +76,9 @@ ruff check src tests scripts
   reliable at "in 20 minutes" and unreliable at clock arithmetic (`timeutil.parse_when`).
 - Features degrade gracefully: missing optional env (Gmail/Binance/DB/search) logs a warning
   and disables that feature — the bot must still boot with just `TELEGRAM_BOT_TOKEN` +
-  `OWNER_TELEGRAM_ID`.
+  `OWNER_TELEGRAM_ID`. This includes MALFORMED config, not just absent config: `db.init_pool`
+  validates the DSN and swallows connection errors, because a bad value crash-looping the
+  process gives the user no Telegram, no `/status` and no readable reason.
 - `callback_data` is capped at 64 bytes: short prefix + integer id only (`apr:12`, `qz:5:2`).
 
 ## Sub-agents and the swarm

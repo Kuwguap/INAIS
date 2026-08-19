@@ -297,7 +297,11 @@ async def cmd_status(message: Message) -> None:
             lines.append(f"since {since}")
 
     lines.append("\nSubsystems")
-    lines.append(f"• database: {'on' if db.pool() is not None else 'OFF'}")
+    if db.pool() is not None:
+        lines.append("• database: on")
+    else:
+        reason = db.last_error() or "SUPABASE_DB_URL not set"
+        lines.append(f"• database: OFF — {reason}")
     lines.append(f"• brain: {'on' if cfg.brain_enabled else 'OFF'} ({cfg.agent_model})")
     lines.append(f"• binance: {'on' if cfg.binance_enabled else 'off'}")
     lines.append(f"• calendar: {'on' if cfg.calendar_enabled else 'off'}")

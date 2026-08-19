@@ -420,6 +420,21 @@ took over.
 
 If something fails, `/why` usually says which layer broke before you reach for the Render logs.
 
+## Troubleshooting
+
+**"invalid DSN: scheme is expected to be either postgresql or postgres, got 'https'"**
+`SUPABASE_DB_URL` holds the Supabase *project* URL. It needs the Postgres connection string:
+Supabase → **Connect** → **Session pooler** → copy the URI starting `postgresql://`, and
+replace `[YOUR-PASSWORD]` with your real database password. The bot no longer crashes on
+this — it boots without persistence, messages you on Telegram, and `/status` names the reason.
+
+**The bot answers but forgets everything / `/tasks` is empty.** Run `/status`. If it says
+`database: OFF`, the reason is on that line. Nothing is stored until it says `on`.
+
+**Deploy loops or exits with status 1.** Check the Render logs for a line starting
+`DATABASE DISABLED` or `INAIS is PAUSED`. Genuine crashes now only come from a missing
+`TELEGRAM_BOT_TOKEN` or `OWNER_TELEGRAM_ID` — everything else degrades to a warning.
+
 ## Security model
 
 - **Owner-only**: every update from anyone but you is dropped.

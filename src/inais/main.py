@@ -40,6 +40,14 @@ async def _startup(bot: Bot) -> None:
         "INAIS starting (mode=%s, db=%s, brain=%s, binance=%s)",
         cfg.run_mode, cfg.db_enabled, cfg.brain_enabled, cfg.binance_enabled,
     )
+    if cfg.db_enabled and db.pool() is None:
+        # the bot still runs, but almost every feature needs storage — say so where it is seen
+        _spawn(bot.send_message(
+            cfg.owner_telegram_id,
+            "⚠️ Started WITHOUT a database — memory, email, tasks and tracking are off.\n\n"
+            f"{db.last_error()}\n\n"
+            "Fix SUPABASE_DB_URL and redeploy; /status shows the state."))
+
     scheduler = schedules.setup(bot)
     scheduler.start()
     await controls.load_flags()

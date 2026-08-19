@@ -133,3 +133,52 @@ def test_migrations_do_not_require_a_bot_token():
 def test_migration_runner_uses_the_minimal_settings():
     runner = (ROOT / "scripts" / "apply_migrations.py").read_text(encoding="utf-8")
     assert "db_settings" in runner and "import settings" not in runner
+
+
+# ---------- database connection string validation ----------
+
+def test_project_url_is_rejected_with_a_useful_message():
+    """The real production failure: pasting the Supabase project URL, not the Postgres URI."""
+    from inais.db import dsn_problem
+
+    problem = dsn_problem("https://exhqskmdipcydkayaufu.supabase.co")
+    assert problem is not None
+    assert "project URL" in problem
+    assert "Session pooler" in problem      # tells them exactly where to look
+
+
+def test_unreplaced_password_placeholder_is_caught():
+    from inais.db import dsn_problem
+
+    dsn = "postgresql://postgres.abc:[YOUR-PASSWORD]@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+    assert "placeholder password" in (dsn_problem(dsn) or "")
+
+
+def test_wrong_scheme_names_the_scheme_it_got():
+    from inais.db import dsn_problem
+
+    assert "mysql" in (dsn_problem("mysql://u:p@h/db") or "")
+
+
+def test_hostless_dsn_is_rejected():
+    from inais.db import dsn_problem
+
+    assert dsn_problem("postgresql://justtext") is not None
+
+
+def test_valid_pooler_uris_pass():
+    from inais.db import dsn_problem
+
+    for dsn in (
+        "postgresql://postgres.abc:pw@aws-0-eu-west-1.pooler.supabase.com:5432/postgres",
+        "postgres://postgres:pw@db.abc.supabase.co:5432/postgres",
+        "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres",
+    ):
+        assert dsn_problem(dsn) is None
+
+
+def test_empty_dsn_is_not_a_problem_just_a_disabled_feature():
+    from inais.db import dsn_problem
+
+    assert dsn_problem("") is None
+    assert dsn_problem(None) is None
