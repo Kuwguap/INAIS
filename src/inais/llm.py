@@ -66,9 +66,12 @@ async def _chat_completion(*, model: str, messages: list[dict], purpose: str,
         "max_completion_tokens": completion_budget(model, max_completion_tokens),
         **extra,
     }
-    # classification does not benefit from long deliberation, and reasoning tokens are billed
-    if low_effort and model.startswith(REASONING_PREFIXES):
-        kwargs["reasoning_effort"] = "low"
+    # Reasoning time dominates latency: an unconstrained GPT-5 turn takes tens of seconds,
+    # and a tool loop multiplies that by the number of round trips. Classification never
+    # benefits from deliberation; the agent gets whatever the user configured.
+    if model.startswith(REASONING_PREFIXES):
+        kwargs["reasoning_effort"] = (
+            "minimal" if low_effort else settings().openai_reasoning_effort)
 
     bumped = False
     resp = None
@@ -78,8 +81,9 @@ async def _chat_completion(*, model: str, messages: list[dict], purpose: str,
             break
         except Exception as e:
             message = str(e).lower()
-            if "reasoning_effort" in kwargs and "reasoning_effort" in message:
-                kwargs.pop("reasoning_effort")   # model predates the parameter
+            if "reasoning_effort" in kwargs and (
+                    "reasoning_effort" in message or "invalid value" in message):
+                kwargs.pop("reasoning_effort")   # model predates or rejects the parameter
                 continue
             if _is_token_limit_error(e) and not bumped:
                 bumped = True

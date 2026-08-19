@@ -475,6 +475,12 @@ and o-series models spend invisible reasoning tokens from the same budget as the
 small budgets fail outright. Requests to those models are floored at 2000 tokens,
 classifiers ask for low reasoning effort, and an output-limit error retries once with more.
 
+**Replies take 30-60 seconds.** That's GPT-5 thinking. Reasoning time dominates a turn, and
+a tool-using turn multiplies it by the number of round trips. Options, cheapest first:
+`OPENAI_REASONING_EFFORT=minimal`, or point `OPENAI_AGENT_MODEL` at a non-reasoning model
+(`gpt-4.1`) which answers in a few seconds. `/why` shows how many model calls a turn actually
+made — three or more means the agent was chaining tools.
+
 **Deploy loops or exits with status 1.** Check the Render logs for a line starting
 `DATABASE DISABLED` or `INAIS is PAUSED`. Genuine crashes now only come from a missing
 `TELEGRAM_BOT_TOKEN` or `OWNER_TELEGRAM_ID` — everything else degrades to a warning.

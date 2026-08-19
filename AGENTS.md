@@ -70,6 +70,10 @@ ruff check src tests scripts
   reasoning models (GPT-5/o-series spend hidden reasoning tokens from the SAME budget, so a
   60-token classifier budget 400s), sets `reasoning_effort=low` for classifiers, and retries
   once on an output-limit error. Never call `chat.completions.create` directly.
+- Latency on reasoning models is dominated by thinking, not tokens: keep classifiers at
+  `reasoning_effort=minimal` and the agent at `OPENAI_REASONING_EFFORT` (default low).
+- Embed the user's turn ONCE and pass the vector to retrieval, `store.embed_message` and the
+  interest signal. Re-embedding identical text is three API calls per message.
 - New model families need a `PRICES_PER_MTOK` entry or `/usage` silently reports $0. Prefix
   matching is first-match, so specific ids (`gpt-5-mini`) must come BEFORE generic (`gpt-5`).
 - Agent calls use the provider-neutral API — `llm.agent_text` (system+user → text) and

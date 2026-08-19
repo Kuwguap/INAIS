@@ -26,13 +26,19 @@ async def save_message(chat_id: int, role: str, content: str, source: str = "tel
     return row["id"]
 
 
-async def embed_message(message_id: int, content: str) -> None:
-    """Attach an embedding after the reply has already gone out (off the hot path)."""
+async def embed_message(message_id: int, content: str,
+                        vec: list[float] | None = None) -> None:
+    """Attach an embedding after the reply has already gone out (off the hot path).
+
+    `vec` lets the caller reuse an embedding it already computed — the user's message is
+    otherwise embedded once for retrieval, once here and once for the interest network.
+    """
     p = db.pool()
     if p is None:
         return
     try:
-        vec = await llm.embed(content)
+        if vec is None:
+            vec = await llm.embed(content)
         await p.execute(
             "update messages set embedding = $1::vector where id = $2",
             llm.vec_literal(vec), message_id,

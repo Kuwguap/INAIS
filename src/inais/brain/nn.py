@@ -196,13 +196,13 @@ def cross_val_auc(x: np.ndarray, y: np.ndarray, w: np.ndarray, hidden_dim: int,
 # ---------- training data + persistence ----------
 
 async def add_example(model_name: str, text: str, label: float, note: str = "",
-                      weight: float = 1.0) -> bool:
-    """Record one supervised example. Embedding is computed here (cheap, off the hot path)."""
+                      weight: float = 1.0, embedding: list[float] | None = None) -> bool:
+    """Record one supervised example. Pass `embedding` to reuse one already computed."""
     p = db.pool()
     if p is None or not text.strip() or model_name not in MODEL_NAMES:
         return False
     try:
-        vec = llm.vec_literal(await llm.embed(text))
+        vec = llm.vec_literal(embedding if embedding is not None else await llm.embed(text))
     except Exception:
         log.exception("could not embed nn example")
         return False

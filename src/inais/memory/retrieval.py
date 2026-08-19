@@ -33,7 +33,8 @@ class MemoryContext:
         return "\n\n".join(parts)
 
 
-async def gather(agent_name: str, query: str, k: int = 6) -> MemoryContext:
+async def gather(agent_name: str, query: str, k: int = 6,
+                 query_vec: list[float] | None = None) -> MemoryContext:
     ctx = MemoryContext()
     p = db.pool()
     if p is None:
@@ -43,7 +44,8 @@ async def gather(agent_name: str, query: str, k: int = 6) -> MemoryContext:
     ctx.preferences = await store.preferences_for(agent_name)
 
     try:
-        qvec = llm.vec_literal(await llm.embed(query))
+        qvec = llm.vec_literal(query_vec if query_vec is not None
+                               else await llm.embed(query))
         fact_rows = await p.fetch(
             "select statement from hybrid_search_facts($1, $2::vector, $3)", query, qvec, k,
         )

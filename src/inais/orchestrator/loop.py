@@ -83,7 +83,17 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
         agent = registry.get_agent(r.agent)
         turn.agent, turn.complexity, turn.route_source = agent.name, r.complexity, r.source
 
-        mem = await retrieval.gather(agent.name, text)
+        # One embedding of the user's text, reused three ways: memory retrieval, the stored
+        # message, and the interest network's training example. Embedding it once per use
+        # was three identical API calls every turn.
+        user_vec: list[float] | None = None
+        if cfg.db_enabled:
+            try:
+                user_vec = await llm.embed(text)
+            except Exception:
+                log.exception("embedding the user turn failed — continuing without memory")
+
+        mem = await retrieval.gather(agent.name, text, query_vec=user_vec)
         note_rows = await swarm.read_notes(agent.name, limit=5)
         notes = swarm.render_notes(note_rows)
         turn.notes_count = len(note_rows)
@@ -100,9 +110,9 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
         stored_text = f"{text}\n[user sent {len(images)} image(s)]" if images else text
         user_msg_id = await store.save_message(chat_id, "user", stored_text)
         if user_msg_id is not None:
-            asyncio.create_task(store.embed_message(user_msg_id, text))
+            asyncio.create_task(store.embed_message(user_msg_id, text, vec=user_vec))
         # whatever the user raises unprompted is training signal for the interest network
-        asyncio.create_task(signals.user_message_signal(text))
+        asyncio.create_task(signals.user_message_signal(text, embedding=user_vec))
 
         if r.complexity == "simple":
             reply = await _simple_turn(agent, mem, history, text, notes)
@@ -129,6 +139,22 @@ async def _simple_turn(agent, mem, history: list[dict], text: str, notes: str = 
     return await llm.openai_chat(
         model=settings().triage_model, messages=messages, purpose=f"simple:{agent.name}",
     )
+
+
+async def _run_tool(ctx, agent_name: str, call: dict) -> dict:
+    """Execute one tool call. Errors go back to the model, never to the user."""
+    tool = registry.find_tool(agent_name, call["name"])
+    if tool is None:
+        trace.record_tool(call["name"], ok=False, detail="unknown tool")
+        return {"id": call["id"], "content": f"Unknown tool: {call['name']}"}
+    try:
+        output = await tool.handler(ctx, call["input"])
+        trace.record_tool(call["name"], ok=True, detail=str(output)[:80])
+    except Exception as e:
+        log.exception("tool %s failed", call["name"])
+        trace.record_tool(call["name"], ok=False, detail=str(e)[:80])
+        output = f"Tool error: {e}"
+    return {"id": call["id"], "content": str(output)[:8000]}
 
 
 async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: str,
@@ -159,21 +185,10 @@ async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: 
 
         messages.append({"role": "assistant", "text": reply.text,
                          "tool_calls": reply.tool_calls})
-        results = []
-        for call in reply.tool_calls:
-            tool = registry.find_tool(agent.name, call["name"])
-            if tool is None:
-                output = f"Unknown tool: {call['name']}"
-                trace.record_tool(call["name"], ok=False, detail="unknown tool")
-            else:
-                try:
-                    output = await tool.handler(ctx, call["input"])
-                    trace.record_tool(call["name"], ok=True, detail=str(output)[:80])
-                except Exception as e:  # tool errors go back to the model, not the user
-                    log.exception("tool %s failed", call["name"])
-                    output = f"Tool error: {e}"
-                    trace.record_tool(call["name"], ok=False, detail=str(e)[:80])
-            results.append({"id": call["id"], "content": str(output)[:8000]})
-        messages.append({"role": "tool_results", "results": results})
+        # the model asked for these together, so run them together — sequential tool calls
+        # were adding seconds per round trip for no reason
+        results = await asyncio.gather(
+            *(_run_tool(ctx, agent.name, call) for call in reply.tool_calls))
+        messages.append({"role": "tool_results", "results": list(results)})
 
     return final_text or "I hit my tool-use limit for this turn — try narrowing the request."

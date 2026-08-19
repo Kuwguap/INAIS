@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     brain_provider: str = "auto"    # auto | anthropic | openai — which brain runs the agent
     agent_model: str = "claude-sonnet-5"
     openai_agent_model: str = "gpt-5"   # used when the brain runs on OpenAI
+    # GPT-5/o-series think before answering, and that thinking is most of the wall clock.
+    # "low" keeps a chat assistant responsive; raise it only if answers are visibly shallow.
+    openai_reasoning_effort: str = "low"   # minimal | low | medium | high
     triage_model: str = "gpt-5-mini"
     reflection_model: str = "claude-haiku-4-5"
     embedding_model: str = "text-embedding-3-small"

@@ -22,11 +22,13 @@ log = logging.getLogger(__name__)
 MIN_TEXT_CHARS = 12
 
 
-async def record_interest(text: str, positive: bool, note: str = "", weight: float = 1.0) -> None:
+async def record_interest(text: str, positive: bool, note: str = "", weight: float = 1.0,
+                          embedding: list[float] | None = None) -> None:
     if not settings().nn_enabled or len(text.strip()) < MIN_TEXT_CHARS:
         return
     try:
-        await nn.add_example("interest", text, 1.0 if positive else 0.0, note, weight)
+        await nn.add_example("interest", text, 1.0 if positive else 0.0, note, weight,
+                             embedding=embedding)
     except Exception:
         log.exception("failed to record interest signal")
 
@@ -75,9 +77,9 @@ async def record_knowledge_feedback(knowledge_id: int, positive: bool) -> str:
     return row["topic"]
 
 
-async def user_message_signal(text: str) -> None:
+async def user_message_signal(text: str, embedding: list[float] | None = None) -> None:
     """Whatever the user brings up unprompted is, by definition, something they care about."""
     stripped = text.strip()
     if len(stripped) < 25 or stripped.startswith("/"):
         return  # too short to carry topical signal
-    await record_interest(stripped, True, note="user raised this topic")
+    await record_interest(stripped, True, note="user raised this topic", embedding=embedding)
