@@ -10,7 +10,7 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from inais.orchestrator import loop
-from inais.textutil import split_message
+from inais.textutil import error_reply, split_message
 
 log = logging.getLogger(__name__)
 router = Router(name="chat")
@@ -38,8 +38,8 @@ async def on_text(message: Message) -> None:
     async with typing_indicator(message.bot, message.chat.id):
         try:
             reply = await loop.handle_text(message.bot, message.chat.id, message.text or "")
-        except Exception:
+        except Exception as e:
             log.exception("brain failed on text turn")
-            reply = "Something broke while thinking about that — try again in a moment."
+            reply = error_reply(e)
     for chunk in split_message(reply):
         await message.answer(chunk)

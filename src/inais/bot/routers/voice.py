@@ -13,7 +13,7 @@ from inais.config import settings
 from inais.integrations import stt_tts
 from inais.orchestrator import loop
 from inais.study import review
-from inais.textutil import split_message
+from inais.textutil import error_reply, split_message
 
 log = logging.getLogger(__name__)
 router = Router(name="voice")
@@ -55,9 +55,9 @@ async def on_voice(message: Message) -> None:
         await message.answer(f"🎙 “{text}”")
         try:
             reply = await loop.handle_text(message.bot, message.chat.id, text, source="voice")
-        except Exception:
+        except Exception as e:
             log.exception("brain failed on voice turn")
-            reply = "Something broke while thinking about that — try again in a moment."
+            reply = error_reply(e)
 
     for chunk in split_message(reply):
         await message.answer(chunk)

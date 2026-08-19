@@ -7,8 +7,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from inais.bot.middleware import DedupeMiddleware, OwnerOnlyMiddleware
 from inais.bot.routers import (
-    approvals, capture, chat, commands, drills, facts, learning, study, tracking,
-    vision, voice,
+    approvals, capture, chat, commands, drills, facts, learning, menu, study,
+    tracking, vision, voice,
 )
 
 
@@ -26,6 +26,7 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(facts.router)
     dp.include_router(tracking.router)
     dp.include_router(commands.router)
+    dp.include_router(menu.router)
     dp.include_router(learning.router)
     dp.include_router(voice.router)
     dp.include_router(chat.router)

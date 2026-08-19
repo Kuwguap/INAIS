@@ -22,43 +22,47 @@ from inais.textutil import split_message
 log = logging.getLogger(__name__)
 router = Router(name="commands")
 
-HELP = """I'm INAIS — your personal assistant.
+HELP = """👋 I'm INAIS — your assistant.
 
-Just talk to me (text or voice notes). I can:
-• 📧 watch your Gmail, flag important mail, and draft replies you approve
-• 💰 track your Binance portfolio (read-only) — try /finance
-• 🗓 hold your tasks, deadlines and reminders — "remind me in 20 min to submit"
-• 📚 study with you: send me a PDF, then ask questions, /quiz, or voice-note a recap
-• 👀 read photos: whiteboards, problem sets, receipts, error screenshots
-• 🐙 watch GitHub for reviews, mentions and failed builds
-• 🔗 read and save any link you forward me
-• 📓 keep a voice journal and track how your weeks are going
-• 🧠 remember things long-term, and teach myself while you're away
+Just talk to me. I understand text, voice notes, photos, PDFs and links.
 
-Commands
-/tasks — open tasks · /brief — today's brief
-/pomodoro [min] [label] — focus timer · /pomodoro stop · /stats
-/quiz [topic] — multiple-choice questions
-/card — spaced-repetition review · /deck — deck stats
-/drill [behavioral|technical|viva|exam] — spoken practice, graded
-/review [topic] — brain-dump: recap out loud, I check it
-/finance — portfolio snapshot
-/learned — what I taught myself · /learn — learn something now
-/brain — neural-network status · /train — retrain it now
-/usage — this month's AI spend · /reflect — consolidate memory now
-/links — saved reading · /journal — voice journal · /mood
-/weekly — this week in review
-/github — reviews, mentions, red builds
-/contacts — people & follow-ups
-/facts — see & correct what I believe · /forget <id>
-/why — explain my last answer · /status — what's running
-/pause · /resume — stop/start all background work
-/reset — fresh conversation · /help — this message"""
+Tap a category below, or send /commands for the full list."""
+
+ALL_COMMANDS = """All commands
+
+Study — /quiz /card /deck /drill /review /plan /docs /links
+Money — /finance /spend /apps /usage
+Plan  — /tasks /brief /pomodoro /stats /weekly /contacts
+Brain — /learned /learn /curiosity /brain /train /facts /forget /mood /journal
+Dev   — /github
+System— /status /diag /why /pause /resume /reflect /reset /menu"""
+
 
 
 @router.message(Command("start", "help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(HELP)
+    from inais.bot.routers.menu import home_kb
+
+    await message.answer(HELP, reply_markup=home_kb())
+
+
+@router.message(Command("commands"))
+async def cmd_commands(message: Message) -> None:
+    await message.answer(ALL_COMMANDS)
+
+
+@router.message(Command("diag"))
+async def cmd_diag(message: Message) -> None:
+    from inais import diagnostics
+
+    await message.answer("🩺 Testing each provider…")
+    try:
+        report = await diagnostics.run()
+    except Exception as e:
+        log.exception("/diag failed")
+        report = f"Diagnostics itself failed: {type(e).__name__}: {e}"
+    for chunk in split_message(report):
+        await message.answer(chunk)
 
 
 @router.message(Command("reset"))

@@ -265,6 +265,16 @@ really does compound: it knows more about your world every week.
 
 ---
 
+## Using it
+
+Just talk to it — text, voice notes, photos, PDFs or links. `/help` opens a **button menu**
+(Study · Money · Plan · Brain · Dev · System) so you never need to remember a command;
+`/commands` lists them all if you prefer typing.
+
+When something goes wrong, three commands answer "why": **`/diag`** tests each provider and
+prints the real error, **`/why`** explains how the last message was handled, and **`/status`**
+shows what's connected.
+
 ## Commands
 
 | Command | What it does |
@@ -290,6 +300,8 @@ really does compound: it knows more about your world every week.
 | `/why [n]` | explain a recent answer: route, memory, tools, tokens, cost |
 | `/status` | what's running, what's pending, what's next |
 | `/pause` · `/resume` | halt / restart every background behaviour |
+| `/menu` · `/commands` | button menu · the full command list |
+| `/diag` | test every provider and print the real error |
 | `/reset` · `/help` | fresh conversation context · overview |
 
 ## Staying in control
@@ -435,6 +447,11 @@ this — it boots without persistence, messages you on Telegram, and `/status` n
 accepts `A-Z a-z 0-9 _ -` in `TELEGRAM_WEBHOOK_SECRET`, and generated values often contain
 `+ / =`. The value is now filtered to that alphabet before use, and if the webhook still
 can't be registered the bot falls back to long polling rather than exiting.
+
+**Every reply is "That turn failed…"** — run `/diag`. It tests the database, the OpenAI
+routing model, the Anthropic agent model and embeddings separately, and prints each
+provider's own error. A wrong model id in `AGENT_MODEL`/`TRIAGE_MODEL` and an invalid key
+look identical until you see the message.
 
 **Deploy loops or exits with status 1.** Check the Render logs for a line starting
 `DATABASE DISABLED` or `INAIS is PAUSED`. Genuine crashes now only come from a missing

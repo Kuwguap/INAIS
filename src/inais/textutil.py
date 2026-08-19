@@ -29,3 +29,15 @@ def split_message(text: str, limit: int = TELEGRAM_LIMIT) -> list[str]:
     if remaining:
         chunks.append(remaining)
     return chunks
+
+
+def error_reply(exc: Exception) -> str:
+    """What the owner sees when a turn fails.
+
+    This is a single-user assistant and the reader is the person who can fix it, so the
+    provider's own message goes straight through — a wrong model id, a rejected key and an
+    exhausted quota are indistinguishable from "something broke".
+    """
+    detail = str(exc).replace("\n", " ").strip()
+    return (f"⚠️ That turn failed.\n\n{type(exc).__name__}: {detail[:400]}\n\n"
+            f"Run /diag to test each provider, or /why for the full trace of this turn.")
