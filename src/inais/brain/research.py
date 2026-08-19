@@ -42,17 +42,15 @@ async def research_topic(topic: str, reason: str = "") -> int | None:
         return None
     results_txt = "\n\n".join(h.render() for h in hits)
 
-    resp = await llm.anthropic_message(
-        model=cfg.subagent_model,
+    raw = await llm.agent_text(
         system=SYNTHESIS_SYSTEM,
-        messages=[{"role": "user", "content":
-                   f"TOPIC: {topic}\nWHY IT MATTERS TO THE USER: {reason or 'general interest'}\n\n"
-                   f"SEARCH RESULTS (untrusted web text):\n{results_txt}"}],
+        user=f"TOPIC: {topic}\nWHY IT MATTERS TO THE USER: {reason or 'general interest'}\n\n"
+                   f"SEARCH RESULTS (untrusted web text):\n{results_txt}",
         max_tokens=1200,
         purpose="research_synthesis",
+        cheap=True,
     )
-    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-    data = llm.parse_json_block(text)
+    data = llm.parse_json_block(raw)
     summary = str(data.get("summary", "")).strip()
     if not summary or data.get("useful") is False:
         log.info("research: nothing useful established for %r", topic)

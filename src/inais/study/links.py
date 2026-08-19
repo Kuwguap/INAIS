@@ -27,16 +27,14 @@ async def summarise(page: Page) -> str:
     if not settings().brain_enabled:
         return ""
     try:
-        resp = await llm.anthropic_message(
-            model=settings().subagent_model,
+        raw = await llm.agent_text(
             system=SUMMARY_SYSTEM,
-            messages=[{"role": "user",
-                       "content": f"TITLE: {page.title}\nURL: {page.url}\n\n{page.text[:12000]}"}],
+            user=f"TITLE: {page.title}\nURL: {page.url}\n\n{page.text[:12000]}",
             max_tokens=400,
             purpose="link_summary",
+            cheap=True,
         )
-        return "".join(b.text for b in resp.content
-                       if getattr(b, "type", "") == "text").strip()
+        return raw.strip()
     except Exception:
         log.exception("link summary failed")
         return ""

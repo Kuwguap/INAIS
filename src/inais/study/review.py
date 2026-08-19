@@ -86,14 +86,14 @@ async def run_review(transcript: str, hint: str | None = None) -> tuple[str, int
         f"SOURCE EXCERPTS FROM THE STUDENT'S OWN MATERIAL:\n{material}\n\n"
         f"STUDENT'S SPOKEN RECAP:\n{transcript}"
     )
-    resp = await llm.anthropic_message(
-        model=settings().agent_model,
+    raw = await llm.agent_text(
         system=REVIEW_SYSTEM,
-        messages=[{"role": "user", "content": payload}],
+        user=payload,
         max_tokens=1200,
         purpose="study_review",
+        cheap=False,
     )
-    feedback = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    feedback = raw.strip()
     if not feedback:
         return "I couldn't produce a review for that recap — try again?", None
 

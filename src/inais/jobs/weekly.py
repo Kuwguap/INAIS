@@ -123,15 +123,12 @@ async def suggest_focuses(stats: dict) -> str:
     payload = render_stats(stats)
     learned = "\n".join(f"- {k['topic']}: {k['summary'][:150]}" for k in stats.get("learned", []))
     try:
-        resp = await llm.anthropic_message(
-            model=settings().agent_model,
+        return await llm.agent_text(
             system=FOCUS_SYSTEM,
-            messages=[{"role": "user", "content":
-                       f"{payload}\n\nWHAT I RESEARCHED FOR THEM:\n{learned or '(nothing)'}"}],
+            user=f"{payload}\n\nWHAT I RESEARCHED FOR THEM:\n{learned or '(nothing)'}",
             max_tokens=500,
             purpose="weekly_review",
         )
-        return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
     except Exception:
         log.exception("weekly focus suggestion failed")
         return ""

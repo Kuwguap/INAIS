@@ -135,17 +135,15 @@ async def generate(category: str, topic: str = "", n: int = 5,
             return 0, ("I have no material on that to build viva questions from — "
                        "send me the PDF first.")
 
-    resp = await llm.anthropic_message(
-        model=settings().agent_model,
+    raw = await llm.agent_text(
         system=GENERATION_SYSTEM,
-        messages=[{"role": "user", "content":
-                   f"CATEGORY: {category}\nTOPIC: {topic or 'general'}\n"
+        user=f"CATEGORY: {category}\nTOPIC: {topic or 'general'}\n"
                    f"Write {max(1, min(n, 10))} questions.\n\n"
-                   f"MATERIAL:\n{material or '(none — use general knowledge of the category)'}"}],
+                   f"MATERIAL:\n{material or '(none — use general knowledge of the category)'}",
         max_tokens=2000,
         purpose="drill_generation",
+        cheap=False,
     )
-    raw = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
     data = llm.parse_json_block(raw)
 
     p = db.pool()
@@ -188,14 +186,14 @@ async def grade(question: dict, transcript: str) -> tuple[str, int | None]:
         f"THEIR OWN MATERIAL:\n{material or '(none)'}\n\n"
         f"WHAT THEY SAID:\n{transcript}"
     )
-    resp = await llm.anthropic_message(
-        model=settings().agent_model,
+    raw = await llm.agent_text(
         system=GRADING_SYSTEM,
-        messages=[{"role": "user", "content": payload}],
+        user=payload,
         max_tokens=1200,
         purpose="drill_grading",
+        cheap=False,
     )
-    feedback = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    feedback = raw.strip()
     if not feedback:
         return "I couldn't grade that answer — try again?", None
 

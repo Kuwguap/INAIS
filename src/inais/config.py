@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     supabase_db_url: str = ""
+    brain_provider: str = "auto"    # auto | anthropic | openai — which brain runs the agent
     agent_model: str = "claude-sonnet-5"
+    openai_agent_model: str = "gpt-5"   # used when the brain runs on OpenAI
     triage_model: str = "gpt-5-mini"
     reflection_model: str = "claude-haiku-4-5"
     embedding_model: str = "text-embedding-3-small"
@@ -99,7 +101,34 @@ class Settings(BaseSettings):
         return bool(self.supabase_db_url)
 
     @property
+    def agent_provider(self) -> str:
+        """Which provider runs the agent loop.
+
+        'auto' prefers Anthropic when its key is set, because Sonnet is the stronger
+        tool-user — but plenty of accounts have an OpenAI key and no Claude access, so
+        BRAIN_PROVIDER=openai moves everything (agent, sub-agents, reflection, grading)
+        onto OpenAI without touching any other setting.
+        """
+        choice = (self.brain_provider or "auto").strip().lower()
+        if choice in ("openai", "anthropic"):
+            return choice
+        return "anthropic" if self.anthropic_api_key else "openai"
+
+    @property
+    def resolved_agent_model(self) -> str:
+        return (self.openai_agent_model if self.agent_provider == "openai"
+                else self.agent_model)
+
+    @property
+    def resolved_subagent_model(self) -> str:
+        """Sub-agents run cheap; on OpenAI that is the same tier as triage."""
+        return (self.triage_model if self.agent_provider == "openai"
+                else self.subagent_model)
+
+    @property
     def brain_enabled(self) -> bool:
+        if self.agent_provider == "openai":
+            return bool(self.openai_api_key)
         return bool(self.anthropic_api_key and self.openai_api_key)
 
     @property

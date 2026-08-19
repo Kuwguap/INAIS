@@ -61,20 +61,18 @@ async def scout(limit: int = 5) -> int:
     known_txt = ", ".join(k["topic"] for k in known) or "(nothing yet)"
     queued_txt = ", ".join(q["topic"] for q in queued) or "(nothing queued)"
 
-    resp = await llm.anthropic_message(
-        model=cfg.reflection_model,
+    raw = await llm.agent_text(
         system=SCOUT_SYSTEM,
-        messages=[{"role": "user", "content":
-                   f"RECENT CONVERSATIONS:\n{transcript}\n\nEXAM TOPICS:\n{exam_txt}\n\n"
-                   f"OPEN TASKS:\n{task_txt}\n\n"
-                   f"ARTICLES THEY SAVED TO READ:\n{saved_links or '(none)'}\n\n"
-                   f"ALREADY KNOWN topics:\n{known_txt}\n\n"
-                   f"ALREADY QUEUED topics:\n{queued_txt}"}],
+        user=f"RECENT CONVERSATIONS:\n{transcript}\n\nEXAM TOPICS:\n{exam_txt}\n\n"
+             f"OPEN TASKS:\n{task_txt}\n\n"
+             f"ARTICLES THEY SAVED TO READ:\n{saved_links or '(none)'}\n\n"
+             f"ALREADY KNOWN topics:\n{known_txt}\n\n"
+             f"ALREADY QUEUED topics:\n{queued_txt}",
         max_tokens=900,
         purpose="curiosity_scout",
+        cheap=True,
     )
-    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-    data = llm.parse_json_block(text)
+    data = llm.parse_json_block(raw)
     topics = data.get("topics") or []
 
     added = 0

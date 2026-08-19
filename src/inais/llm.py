@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from functools import lru_cache
 
 from anthropic import AsyncAnthropic
@@ -157,3 +158,158 @@ def parse_json_block(text: str) -> dict:
     except json.JSONDecodeError:
         log.warning("could not parse JSON from LLM reply: %.200s", text)
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Provider-neutral agent API.
+#
+# The orchestrator and sub-agents speak one message format and llm.py translates it, so
+# BRAIN_PROVIDER can move the whole brain between Anthropic and OpenAI without any caller
+# knowing. Neutral messages look like:
+#     {"role": "user", "content": str | [blocks]}
+#     {"role": "assistant", "text": str, "tool_calls": [{"id", "name", "input"}]}
+#     {"role": "tool_results", "results": [{"id", "content"}]}
+# Image blocks use the Anthropic shape and are converted for OpenAI.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AgentReply:
+    text: str
+    tool_calls: list[dict]
+    stop_reason: str          # "tool_use" when the model wants a tool, else "end"
+
+
+def _img_to_openai(block: dict) -> dict:
+    src = block.get("source", {})
+    url = "data:" + str(src.get("media_type", "image/jpeg")) + ";base64," + str(src.get("data", ""))
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
+def to_anthropic_messages(messages: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for m in messages:
+        role = m.get("role")
+        if role == "user":
+            out.append({"role": "user", "content": m["content"]})
+        elif role == "assistant":
+            blocks: list[dict] = []
+            if m.get("text"):
+                blocks.append({"type": "text", "text": m["text"]})
+            for call in m.get("tool_calls", []):
+                blocks.append({"type": "tool_use", "id": call["id"],
+                               "name": call["name"], "input": call.get("input", {})})
+            out.append({"role": "assistant", "content": blocks or m.get("content", "")})
+        elif role == "tool_results":
+            out.append({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": r["id"], "content": str(r["content"])}
+                for r in m["results"]
+            ]})
+    return out
+
+
+def to_openai_messages(messages: list[dict], system: str) -> list[dict]:
+    out: list[dict] = [{"role": "system", "content": system}]
+    for m in messages:
+        role = m.get("role")
+        if role == "user":
+            content = m["content"]
+            if isinstance(content, list):
+                converted = [
+                    _img_to_openai(b) if b.get("type") == "image" else b for b in content
+                ]
+                out.append({"role": "user", "content": converted})
+            else:
+                out.append({"role": "user", "content": content})
+        elif role == "assistant":
+            entry: dict = {"role": "assistant", "content": m.get("text") or None}
+            if m.get("tool_calls"):
+                entry["tool_calls"] = [
+                    {"id": c["id"], "type": "function",
+                     "function": {"name": c["name"],
+                                  "arguments": json.dumps(c.get("input", {}))}}
+                    for c in m["tool_calls"]
+                ]
+            out.append(entry)
+        elif role == "tool_results":
+            for r in m["results"]:
+                out.append({"role": "tool", "tool_call_id": r["id"],
+                            "content": str(r["content"])})
+    return out
+
+
+def tools_to_openai(tools: list[dict]) -> list[dict]:
+    return [
+        {"type": "function",
+         "function": {"name": t["name"], "description": t.get("description", ""),
+                      "parameters": t.get("input_schema", {"type": "object", "properties": {}})}}
+        for t in tools
+    ]
+
+
+async def agent_tools(*, system: str, messages: list[dict], tools: list[dict],
+                      max_tokens: int = 2048, purpose: str = "agent",
+                      model: str | None = None) -> AgentReply:
+    """One turn of a tool-using agent loop, on whichever provider is configured."""
+    cfg = settings()
+    provider = cfg.agent_provider
+    chosen = model or cfg.resolved_agent_model
+
+    if provider == "anthropic":
+        resp = await anthropic_message(
+            model=chosen,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=to_anthropic_messages(messages),
+            tools=tools, max_tokens=max_tokens, purpose=purpose,
+        )
+        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        calls = [{"id": b.id, "name": b.name, "input": dict(b.input or {})}
+                 for b in resp.content if getattr(b, "type", "") == "tool_use"]
+        return AgentReply(text=text, tool_calls=calls,
+                          stop_reason="tool_use" if calls else "end")
+
+    kwargs: dict = {
+        "model": chosen,
+        "messages": to_openai_messages(messages, system),
+        "max_completion_tokens": max_tokens,
+    }
+    if tools:
+        kwargs["tools"] = tools_to_openai(tools)
+    resp = await openai_client().chat.completions.create(**kwargs)
+    if resp.usage:
+        await record_usage("openai", chosen, purpose,
+                           resp.usage.prompt_tokens, resp.usage.completion_tokens)
+    choice = resp.choices[0].message
+    calls = []
+    for call in (choice.tool_calls or []):
+        try:
+            arguments = json.loads(call.function.arguments or "{}")
+        except json.JSONDecodeError:
+            arguments = {}
+        calls.append({"id": call.id, "name": call.function.name, "input": arguments})
+    return AgentReply(text=choice.content or "", tool_calls=calls,
+                      stop_reason="tool_use" if calls else "end")
+
+
+async def agent_text(*, system: str, user: str, max_tokens: int = 1500,
+                     purpose: str = "agent", model: str | None = None,
+                     cheap: bool = False) -> str:
+    """A single system+user call returning text, on whichever provider is configured.
+
+    `cheap=True` asks for the small tier — used by background passes (reflection, research
+    synthesis) where the strong model is not worth its price.
+    """
+    cfg = settings()
+    if model is None:
+        model = cfg.resolved_subagent_model if cheap else cfg.resolved_agent_model
+    if cfg.agent_provider == "anthropic":
+        resp = await anthropic_message(
+            model=model, system=system,
+            messages=[{"role": "user", "content": user}],
+            max_tokens=max_tokens, purpose=purpose,
+        )
+        return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+    return (await openai_chat(
+        model=model,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        purpose=purpose, max_completion_tokens=max_tokens,
+    )).strip()

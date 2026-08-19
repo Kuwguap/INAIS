@@ -47,8 +47,13 @@ services:
         sync: false
       - key: SUPABASE_DB_URL
         sync: false                   # Supabase → Connect → session pooler URI (port 5432)
+      - key: BRAIN_PROVIDER
+        value: auto                   # auto | openai | anthropic. Set "openai" to run the
+                                      # whole brain on OpenAI (no Claude access needed).
       - key: AGENT_MODEL
-        value: claude-sonnet-5        # tool-heavy turns
+        value: claude-sonnet-5        # tool-heavy turns, when the brain is Anthropic
+      - key: OPENAI_AGENT_MODEL
+        value: gpt-5                  # tool-heavy turns, when the brain is OpenAI
       - key: TRIAGE_MODEL
         value: gpt-5-mini             # routing, email triage, cheap replies
       - key: SUBAGENT_MODEL

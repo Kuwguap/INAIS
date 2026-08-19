@@ -72,7 +72,6 @@ def _semaphore() -> asyncio.Semaphore:
 
 async def run_subagent(bot, chat_id: int, spec: SubTask, model: str | None = None) -> SubResult:
     """One bounded tool loop for a single specialist."""
-    cfg = settings()
     agent = registry.get_agent(spec.agent)
     tools = registry.tools_for(agent.name, for_subagent=True)
     system = "\n\n".join(filter(None, [
@@ -84,44 +83,42 @@ async def run_subagent(bot, chat_id: int, spec: SubTask, model: str | None = Non
     final = ""
     for _ in range(SUBAGENT_MAX_ITERATIONS):
         try:
-            resp = await llm.anthropic_message(
-                model=model or cfg.subagent_model,
+            reply = await llm.agent_tools(
                 system=system,
                 messages=messages,
                 tools=[t.to_anthropic() for t in tools],
                 max_tokens=SUBAGENT_MAX_TOKENS,
                 purpose=f"subagent:{agent.name}",
+                model=model or settings().resolved_subagent_model,
             )
         except Exception as e:
             log.exception("sub-agent %s failed", spec.agent)
             return SubResult(spec.agent, spec.task, f"failed: {e}", ok=False, label=spec.label)
 
-        text_parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
-        if text_parts:
-            final = "\n".join(text_parts)
-        if resp.stop_reason != "tool_use":
+        if reply.text:
+            final = reply.text
+        if reply.stop_reason != "tool_use":
             return SubResult(spec.agent, spec.task, final, label=spec.label)
 
-        messages.append({"role": "assistant", "content": resp.content})
+        messages.append({"role": "assistant", "text": reply.text,
+                         "tool_calls": reply.tool_calls})
         results = []
-        for block in resp.content:
-            if getattr(block, "type", "") != "tool_use":
-                continue
-            tool = registry.find_tool(agent.name, block.name, for_subagent=True)
+        for call in reply.tool_calls:
+            tool = registry.find_tool(agent.name, call["name"], for_subagent=True)
             if tool is None:
-                output = f"Unknown or restricted tool: {block.name}"
-                trace.record_tool(f"{agent.name}/{block.name}", ok=False, detail="restricted")
+                output = f"Unknown or restricted tool: {call['name']}"
+                trace.record_tool(f"{agent.name}/{call['name']}", ok=False, detail="restricted")
             else:
                 try:
-                    output = await tool.handler(ctx, dict(block.input or {}))
-                    trace.record_tool(f"{agent.name}/{block.name}", ok=True)
+                    output = await tool.handler(ctx, call["input"])
+                    trace.record_tool(f"{agent.name}/{call['name']}", ok=True)
                 except Exception as e:
-                    log.exception("sub-agent tool %s failed", block.name)
+                    log.exception("sub-agent tool %s failed", call["name"])
                     output = f"Tool error: {e}"
-                    trace.record_tool(f"{agent.name}/{block.name}", ok=False, detail=str(e)[:80])
-            results.append({"type": "tool_result", "tool_use_id": block.id,
-                            "content": str(output)[:6000]})
-        messages.append({"role": "user", "content": results})
+                    trace.record_tool(f"{agent.name}/{call['name']}", ok=False,
+                                      detail=str(e)[:80])
+            results.append({"id": call["id"], "content": str(output)[:6000]})
+        messages.append({"role": "tool_results", "results": results})
 
     return SubResult(spec.agent, spec.task,
                      final or "hit the sub-agent iteration limit", ok=bool(final),

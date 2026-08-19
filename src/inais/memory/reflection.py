@@ -10,7 +10,6 @@ import json
 import logging
 
 from inais import db, journal, llm
-from inais.config import settings
 from inais.memory import store
 
 log = logging.getLogger(__name__)
@@ -77,15 +76,14 @@ async def run_reflection() -> str:
         f"TRANSCRIPTS (last 36h):\n{transcript}"
     )
 
-    resp = await llm.anthropic_message(
-        model=settings().reflection_model,
+    raw = await llm.agent_text(
         system=REFLECTION_SYSTEM,
-        messages=[{"role": "user", "content": user_payload}],
+        user=user_payload,
         max_tokens=3000,
         purpose="reflection",
+        cheap=True,
     )
-    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-    data = llm.parse_json_block(text)
+    data = llm.parse_json_block(raw)
     if not data:
         return "Reflection ran but produced no parseable output."
 

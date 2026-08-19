@@ -1,7 +1,9 @@
-"""The brain. Simple turns → cheap OpenAI model; tool-heavy turns → Anthropic tool loop.
+"""The brain. Simple turns → cheap model; tool-heavy turns → the agent tool loop.
 
-Each conversation is pinned to one model while active (prompt caches are provider+model
-scoped) — a session escalated to the agent model stays there until 30 min of idle or /reset.
+Which provider runs the agent loop is BRAIN_PROVIDER's business, not this module's: it calls
+llm.agent_tools with provider-neutral messages. Each conversation is pinned to one model while
+active (prompt caches are provider+model scoped) — a session escalated to the agent model
+stays there until 30 min of idle or /reset.
 """
 
 from __future__ import annotations
@@ -94,7 +96,7 @@ async def handle_text(bot, chat_id: int, text: str, source: str = "text",
 
         # fetch history BEFORE saving the current message, or it would appear twice in the prompt
         history = await store.recent_history(chat_id)
-            # history is text-only, so mark the attachment or later turns lose the context
+        # history is text-only, so mark the attachment or later turns lose the context
         stored_text = f"{text}\n[user sent {len(images)} image(s)]" if images else text
         user_msg_id = await store.save_message(chat_id, "user", stored_text)
         if user_msg_id is not None:
@@ -131,13 +133,8 @@ async def _simple_turn(agent, mem, history: list[dict], text: str, notes: str = 
 
 async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: str,
                       notes: str = "", images: list[dict] | None = None) -> str:
-    cfg = settings()
     tools = registry.tools_for(agent.name)
-    system = [{
-        "type": "text",
-        "text": _build_system(agent, mem.render(), notes),
-        "cache_control": {"type": "ephemeral"},
-    }]
+    system = _build_system(agent, mem.render(), notes)
     # images ride along in the user turn; text alone stays a plain string so cached
     # prefixes from earlier text-only turns still match
     user_content: str | list[dict] = text
@@ -148,39 +145,35 @@ async def _agent_turn(bot, chat_id: int, agent, mem, history: list[dict], text: 
 
     final_text = ""
     for _ in range(MAX_TOOL_ITERATIONS):
-        resp = await llm.anthropic_message(
-            model=cfg.agent_model,
+        reply = await llm.agent_tools(
             system=system,
             messages=messages,
             tools=[t.to_anthropic() for t in tools],
             max_tokens=2048,
             purpose=f"agent:{agent.name}",
         )
-        text_parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
-        if text_parts:
-            final_text = "\n".join(text_parts)
-
-        if resp.stop_reason != "tool_use":
+        if reply.text:
+            final_text = reply.text
+        if reply.stop_reason != "tool_use":
             return final_text
 
-        messages.append({"role": "assistant", "content": resp.content})
+        messages.append({"role": "assistant", "text": reply.text,
+                         "tool_calls": reply.tool_calls})
         results = []
-        for block in resp.content:
-            if getattr(block, "type", "") != "tool_use":
-                continue
-            tool = registry.find_tool(agent.name, block.name)
+        for call in reply.tool_calls:
+            tool = registry.find_tool(agent.name, call["name"])
             if tool is None:
-                output = f"Unknown tool: {block.name}"
-                trace.record_tool(block.name, ok=False, detail="unknown tool")
+                output = f"Unknown tool: {call['name']}"
+                trace.record_tool(call["name"], ok=False, detail="unknown tool")
             else:
                 try:
-                    output = await tool.handler(ctx, dict(block.input or {}))
-                    trace.record_tool(block.name, ok=True, detail=str(output)[:80])
+                    output = await tool.handler(ctx, call["input"])
+                    trace.record_tool(call["name"], ok=True, detail=str(output)[:80])
                 except Exception as e:  # tool errors go back to the model, not the user
-                    log.exception("tool %s failed", block.name)
+                    log.exception("tool %s failed", call["name"])
                     output = f"Tool error: {e}"
-                    trace.record_tool(block.name, ok=False, detail=str(e)[:80])
-            results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)[:8000]})
-        messages.append({"role": "user", "content": results})
+                    trace.record_tool(call["name"], ok=False, detail=str(e)[:80])
+            results.append({"id": call["id"], "content": str(output)[:8000]})
+        messages.append({"role": "tool_results", "results": results})
 
     return final_text or "I hit my tool-use limit for this turn — try narrowing the request."

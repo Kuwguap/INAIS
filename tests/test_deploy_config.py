@@ -235,3 +235,90 @@ def test_webhook_path_falls_back_to_a_hex_digest():
 
     path = _settings(webhook_secret_path="").webhook_path
     assert re.fullmatch(r"[0-9a-f]{32}", path)
+
+
+# ---------- brain provider switch ----------
+
+def test_provider_auto_prefers_anthropic_then_falls_back():
+    assert _settings(anthropic_api_key="k", openai_api_key="k").agent_provider == "anthropic"
+    assert _settings(anthropic_api_key="", openai_api_key="k").agent_provider == "openai"
+
+
+def test_provider_can_be_forced_to_openai():
+    """The case this exists for: a key is present but the account has no Claude access."""
+    cfg = _settings(brain_provider="openai", anthropic_api_key="k", openai_api_key="k")
+    assert cfg.agent_provider == "openai"
+    assert cfg.resolved_agent_model == cfg.openai_agent_model
+    assert cfg.resolved_subagent_model == cfg.triage_model
+
+
+def test_forced_openai_needs_only_an_openai_key():
+    assert _settings(brain_provider="openai", anthropic_api_key="",
+                     openai_api_key="k").brain_enabled
+
+
+def test_anthropic_brain_still_needs_both_keys():
+    assert not _settings(brain_provider="anthropic", anthropic_api_key="k",
+                         openai_api_key="").brain_enabled
+
+
+def test_unknown_provider_value_falls_back_to_auto():
+    assert _settings(brain_provider="banana", anthropic_api_key="k").agent_provider == "anthropic"
+
+
+# ---------- provider-neutral message conversion ----------
+
+NEUTRAL = [
+    {"role": "user", "content": "hello"},
+    {"role": "assistant", "text": "checking",
+     "tool_calls": [{"id": "c1", "name": "get_portfolio", "input": {"x": 1}}]},
+    {"role": "tool_results", "results": [{"id": "c1", "content": "BTC 0.5"}]},
+]
+
+
+def test_anthropic_conversion_shapes_tool_blocks():
+    from inais.llm import to_anthropic_messages
+
+    out = to_anthropic_messages(NEUTRAL)
+    assert [m["role"] for m in out] == ["user", "assistant", "user"]
+    assert out[1]["content"][1]["type"] == "tool_use"
+    assert out[1]["content"][1]["id"] == "c1"
+    assert out[2]["content"][0]["type"] == "tool_result"
+    assert out[2]["content"][0]["tool_use_id"] == "c1"
+
+
+def test_openai_conversion_shapes_tool_calls():
+    import json
+
+    from inais.llm import to_openai_messages
+
+    out = to_openai_messages(NEUTRAL, "SYSTEM")
+    assert out[0] == {"role": "system", "content": "SYSTEM"}
+    assert [m["role"] for m in out] == ["system", "user", "assistant", "tool"]
+    call = out[2]["tool_calls"][0]
+    assert call["function"]["name"] == "get_portfolio"
+    assert json.loads(call["function"]["arguments"]) == {"x": 1}
+    assert out[3]["tool_call_id"] == "c1"
+
+
+def test_images_convert_to_openais_data_url():
+    from inais.llm import to_openai_messages
+
+    neutral = [{"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAA"}},
+        {"type": "text", "text": "what is this"},
+    ]}]
+    block = to_openai_messages(neutral, "S")[1]["content"][0]
+    assert block["type"] == "image_url"
+    assert block["image_url"]["url"] == "data:image/png;base64,AAA"
+
+
+def test_tool_schema_conversion_keeps_the_parameters():
+    from inais.llm import tools_to_openai
+
+    tools = [{"name": "t", "description": "d",
+              "input_schema": {"type": "object", "properties": {"a": {"type": "string"}}}}]
+    out = tools_to_openai(tools)[0]
+    assert out["type"] == "function"
+    assert out["function"]["name"] == "t"
+    assert out["function"]["parameters"]["properties"]["a"]["type"] == "string"

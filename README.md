@@ -432,6 +432,23 @@ took over.
 
 If something fails, `/why` usually says which layer broke before you reach for the Render logs.
 
+## No Claude access? Run it all on OpenAI
+
+Set one variable:
+
+```
+BRAIN_PROVIDER=openai
+OPENAI_AGENT_MODEL=gpt-5      # or whatever your account actually has
+```
+
+That moves the whole brain — the agent loop, sub-agents, reflection, syllabus extraction,
+quiz and drill generation, grading — onto OpenAI. Nothing else changes, and you don't need an
+Anthropic key at all. `BRAIN_PROVIDER=auto` (the default) uses Anthropic when its key is set,
+because Sonnet is the stronger tool-user, and OpenAI otherwise.
+
+If `/diag` reports the agent brain failing with a model error, the model id isn't on your
+account: change `AGENT_MODEL`/`OPENAI_AGENT_MODEL` or flip the provider.
+
 ## Troubleshooting
 
 **"invalid DSN: scheme is expected to be either postgresql or postgres, got 'https'"**

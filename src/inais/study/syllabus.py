@@ -48,15 +48,13 @@ async def extract(document_id: int, text: str, title: str = "") -> list[dict]:
     if p is None or not settings().brain_enabled or not text.strip():
         return []
 
-    resp = await llm.anthropic_message(
-        model=settings().agent_model,
+    raw = await llm.agent_text(
         system=EXTRACTION_SYSTEM,
-        messages=[{"role": "user", "content":
-                   f"DOCUMENT: {title}\nTODAY: {now_local():%Y-%m-%d}\n\n{text[:MAX_CHARS]}"}],
+        user=f"DOCUMENT: {title}\nTODAY: {now_local():%Y-%m-%d}\n\n{text[:MAX_CHARS]}",
         max_tokens=2000,
         purpose="syllabus_extraction",
+        cheap=False,
     )
-    raw = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
     data = llm.parse_json_block(raw)
 
     stored: list[dict] = []

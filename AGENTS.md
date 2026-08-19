@@ -66,6 +66,10 @@ ruff check src tests scripts
   never trust LLM output as Telegram markup.
 - Every LLM call goes through `src/inais/llm.py` so usage/cost lands in `llm_usage`. Give each
   call a `purpose` — the autonomy budget and `/usage` group by it.
+- Agent calls use the provider-neutral API — `llm.agent_text` (system+user → text) and
+  `llm.agent_tools` (a tool-loop turn). Both follow `BRAIN_PROVIDER`, so the assistant runs
+  on Anthropic or OpenAI with no caller changes. Do NOT call `anthropic_message` directly in
+  new code; that would pin a feature to one provider and break the switch.
 - Config comes only from `src/inais/config.py` (pydantic-settings, `.env`); never read
   `os.environ` elsewhere. All scheduled work uses `TIMEZONE` via `src/inais/timeutil.py`.
   `Settings` requires the bot token and owner id; `DbSettings` (`db_settings()`) exposes only

@@ -31,16 +31,14 @@ async def generate(topic: str, n: int = 5, document_id: int | None = None) -> tu
         return 0, ("I have no ingested material matching that. Send me the PDF first and "
                    "I'll build questions from it.")
     material = "\n\n".join(f"[{c['title']}] {c['content'][:1500]}" for c in chunks)
-    resp = await llm.anthropic_message(
-        model=settings().agent_model,
+    raw = await llm.agent_text(
         system=QUIZ_SYSTEM,
-        messages=[{"role": "user", "content":
-                   f"TOPIC: {topic}\nWrite {max(1, min(n, 10))} questions.\n\nEXCERPTS:\n{material}"}],
+        user=f"TOPIC: {topic}\nWrite {max(1, min(n, 10))} questions.\n\nEXCERPTS:\n{material}",
         max_tokens=2000,
         purpose="quiz_generation",
+        cheap=False,
     )
-    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-    data = llm.parse_json_block(text)
+    data = llm.parse_json_block(raw)
     items = [it for it in data.get("items", []) if _valid(it)]
     if not items:
         return 0, "I couldn't turn that material into clean questions — try a narrower topic."

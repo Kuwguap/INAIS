@@ -52,19 +52,23 @@ async def check_openai() -> str:
         return f"{BAD} OpenAI {cfg.triage_model} — {_short(e)}"
 
 
-async def check_anthropic() -> str:
+async def check_agent_brain() -> str:
+    """Tests the provider that actually runs the agent loop, whichever it is."""
     cfg = settings()
-    if not cfg.anthropic_api_key:
-        return f"{OFF} Anthropic — no key"
+    provider, model = cfg.agent_provider, cfg.resolved_agent_model
+    if provider == "anthropic" and not cfg.anthropic_api_key:
+        return f"{OFF} agent brain — BRAIN_PROVIDER=anthropic but no ANTHROPIC_API_KEY"
+    if provider == "openai" and not cfg.openai_api_key:
+        return f"{OFF} agent brain — no OPENAI_API_KEY"
     try:
-        resp = await llm.anthropic_message(
-            model=cfg.agent_model, system="Reply with one word.",
-            messages=[{"role": "user", "content": "Say ok"}],
+        reply = await llm.agent_text(
+            system="Reply with one word.", user="Say ok",
             max_tokens=10, purpose="diagnostic")
-        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-        return f"{OK} Anthropic {cfg.agent_model} — replied {text.strip()[:20]!r}"
+        return f"{OK} agent brain ({provider} {model}) — replied {reply.strip()[:20]!r}"
     except Exception as e:
-        return f"{BAD} Anthropic {cfg.agent_model} — {_short(e)}"
+        return (f"{BAD} agent brain ({provider} {model}) — {_short(e)}\n"
+                f"     if that model isn't on your account, set BRAIN_PROVIDER=openai "
+                f"or change AGENT_MODEL")
 
 
 async def check_embeddings() -> str:
@@ -83,7 +87,7 @@ async def run() -> str:
     lines = ["🩺 Diagnostics", ""]
     lines.append(await check_database())
     lines.append(await check_openai())      # routing + triage
-    lines.append(await check_anthropic())   # the agent brain
+    lines.append(await check_agent_brain())  # whichever provider runs the loop
     lines.append(await check_embeddings())  # memory writes
 
     cfg = settings()
