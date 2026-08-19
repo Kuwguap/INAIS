@@ -322,3 +322,49 @@ def test_tool_schema_conversion_keeps_the_parameters():
     assert out["type"] == "function"
     assert out["function"]["name"] == "t"
     assert out["function"]["parameters"]["properties"]["a"]["type"] == "string"
+
+
+# ---------- no null content reaches either provider ----------
+
+TOOL_TURN_NO_TEXT = [
+    {"role": "user", "content": "what's my portfolio worth?"},
+    # the real shape that broke production: tool calls with no accompanying prose
+    {"role": "assistant", "text": "", "tool_calls": [
+        {"id": "c1", "name": "get_portfolio", "input": {}}]},
+    {"role": "tool_results", "results": [{"id": "c1", "content": "BTC 0.5"}]},
+]
+
+
+def test_tool_call_without_text_omits_content_rather_than_nulling_it():
+    """OpenAI 400s on content: null — this exact turn broke the deployed bot."""
+    from inais.llm import to_openai_messages
+
+    out = to_openai_messages(TOOL_TURN_NO_TEXT, "S")
+    assistant = next(m for m in out if m["role"] == "assistant")
+    assert assistant.get("content", "not-null") is not None
+    assert "tool_calls" in assistant
+
+
+def test_no_message_ever_carries_null_content():
+    from inais.llm import to_anthropic_messages, to_openai_messages
+
+    cases = [
+        TOOL_TURN_NO_TEXT,
+        [{"role": "user", "content": None}],
+        [{"role": "assistant", "text": None, "tool_calls": []}],
+        [{"role": "assistant", "text": "with prose", "tool_calls": [
+            {"id": "c", "name": "n", "input": {}}]}],
+    ]
+    for case in cases:
+        for msg in to_openai_messages(case, "S") + to_anthropic_messages(case):
+            assert msg.get("content", "") is not None, f"null content from {case}"
+
+
+def test_assistant_text_alongside_tool_calls_is_preserved():
+    from inais.llm import to_openai_messages
+
+    case = [{"role": "assistant", "text": "checking that now",
+             "tool_calls": [{"id": "c", "name": "n", "input": {}}]}]
+    assistant = to_openai_messages(case, "S")[1]
+    assert assistant["content"] == "checking that now"
+    assert len(assistant["tool_calls"]) == 1

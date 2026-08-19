@@ -253,7 +253,7 @@ def to_anthropic_messages(messages: list[dict]) -> list[dict]:
     for m in messages:
         role = m.get("role")
         if role == "user":
-            out.append({"role": "user", "content": m["content"]})
+            out.append({"role": "user", "content": m.get("content") or ""})
         elif role == "assistant":
             blocks: list[dict] = []
             if m.get("text"):
@@ -261,7 +261,7 @@ def to_anthropic_messages(messages: list[dict]) -> list[dict]:
             for call in m.get("tool_calls", []):
                 blocks.append({"type": "tool_use", "id": call["id"],
                                "name": call["name"], "input": call.get("input", {})})
-            out.append({"role": "assistant", "content": blocks or m.get("content", "")})
+            out.append({"role": "assistant", "content": blocks or m.get("content") or ""})
         elif role == "tool_results":
             out.append({"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": r["id"], "content": str(r["content"])}
@@ -275,7 +275,7 @@ def to_openai_messages(messages: list[dict], system: str) -> list[dict]:
     for m in messages:
         role = m.get("role")
         if role == "user":
-            content = m["content"]
+            content = m.get("content") or ""
             if isinstance(content, list):
                 converted = [
                     _img_to_openai(b) if b.get("type") == "image" else b for b in content
@@ -284,14 +284,22 @@ def to_openai_messages(messages: list[dict], system: str) -> list[dict]:
             else:
                 out.append({"role": "user", "content": content})
         elif role == "assistant":
-            entry: dict = {"role": "assistant", "content": m.get("text") or None}
-            if m.get("tool_calls"):
+            entry: dict = {"role": "assistant"}
+            text = m.get("text") or m.get("content") or ""
+            calls = m.get("tool_calls") or []
+            if calls:
                 entry["tool_calls"] = [
                     {"id": c["id"], "type": "function",
                      "function": {"name": c["name"],
                                   "arguments": json.dumps(c.get("input", {}))}}
-                    for c in m["tool_calls"]
+                    for c in calls
                 ]
+                # A tool-calling turn usually has no prose. Omit content entirely rather
+                # than sending null — the API rejects a null content field outright.
+                if text:
+                    entry["content"] = text
+            else:
+                entry["content"] = text
             out.append(entry)
         elif role == "tool_results":
             for r in m["results"]:
