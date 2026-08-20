@@ -813,6 +813,17 @@ create table if not exists commitments (
 );
 create index if not exists commitments_due_idx on commitments (due_at) where not done;
 
+-- ==================== 026_store_events.sql ====================
+-- Store push idempotency: one row per store event we've already notified the owner about.
+create table if not exists store_events (
+    id          bigserial primary key,
+    event_key   text        not null unique,
+    kind        text,
+    summary     text,
+    created_at  timestamptz not null default now()
+);
+create index if not exists store_events_recent_idx on store_events (created_at desc);
+
 -- ==================== bookkeeping ====================
 create table if not exists schema_migrations (
     filename   text primary key,
@@ -843,7 +854,8 @@ insert into schema_migrations (filename) values
     ('022_reminder_lifecycle.sql'),
     ('023_persona_controls.sql'),
     ('024_reading_read_at.sql'),
-    ('025_commitments.sql')
+    ('025_commitments.sql'),
+    ('026_store_events.sql')
 on conflict do nothing;
 
 select count(*) as tables_created from information_schema.tables where table_schema = 'public';

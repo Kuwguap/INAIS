@@ -111,6 +111,29 @@ async def run_web(bot: Bot, dp: Dispatcher) -> None:
         _spawn(dp.feed_update(bot, update))  # ACK immediately, process in background
         return web.Response(text="ok")
 
+    async def handle_store_event(request: web.Request) -> web.Response:
+        """The ogoffcl store pushes waitlist signups and paid orders here. The shared-key
+        header is the ONLY auth on this public route (aiogram's owner-only middleware doesn't
+        cover HTTP), so the constant-time compare is load-bearing."""
+        supplied = request.headers.get("x-bot-secret", "")
+        if not cfg.ogoffcl_api_key or not hmac.compare_digest(supplied, cfg.ogoffcl_api_key):
+            return web.Response(status=401)
+        if controls.is_paused():
+            return web.Response(text="ok")  # /pause mutes store alerts like every notification
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.Response(status=400, text="bad json")
+        from inais.bot import keyboards
+        from inais.integrations import ogoffcl
+
+        if not await ogoffcl.claim_event(ogoffcl.event_key(payload)):
+            return web.Response(text="ok")  # re-delivered event — already notified
+        text, order_id = ogoffcl.format_event(payload)
+        markup = keyboards.store_order_kb(order_id) if order_id else None
+        _spawn(bot.send_message(cfg.owner_telegram_id, text, reply_markup=markup))
+        return web.Response(text="ok")
+
     async def healthz(request: web.Request) -> web.Response:
         return web.Response(text="ok")
 
@@ -145,6 +168,7 @@ async def run_web(bot: Bot, dp: Dispatcher) -> None:
 
     app = web.Application()
     app.router.add_post(f"/wh/{cfg.webhook_path}", handle_webhook)
+    app.router.add_post("/store/events", handle_store_event)
     app.router.add_get("/healthz", healthz)
     app.router.add_get("/oauth/callback", oauth_callback)
     app.router.add_get("/", healthz)

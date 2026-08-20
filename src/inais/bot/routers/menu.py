@@ -52,6 +52,10 @@ SECTIONS: dict[str, tuple[str, str, list[tuple[str, str]]]] = {
     "dev": ("🐙 Dev", "🐙 Dev & mail", [
         ("👀 GitHub", "github"), ("📧 Recent mail", "mail"),
     ]),
+    "store": ("🛒 Store", "🛒 Store", [
+        ("🛒 Overview", "storeoverview"), ("📦 Orders", "storeorders"),
+        ("⏳ Waitlist", "storewaitlist"), ("📈 Analytics", "storeanalytics"),
+    ]),
     "system": ("⚙️ System", "⚙️ System", [
         ("📈 Status", "status"), ("🩺 Diagnostics", "diag"),
         ("🔍 Why last answer", "why"), ("⏸ Pause", "pause"),
@@ -146,6 +150,30 @@ async def _github() -> str:
     return github.render_digest(await github.fetch_all())
 
 
+async def _store_overview() -> str:
+    from inais.integrations import ogoffcl
+
+    if not settings().ogoffcl_enabled:
+        return "Store isn't configured — set OGOFFCL_BASE_URL and OGOFFCL_API_KEY."
+    return ogoffcl.render_overview(await ogoffcl.overview())
+
+
+async def _store_waitlist() -> str:
+    from inais.integrations import ogoffcl
+
+    if not settings().ogoffcl_enabled:
+        return "Store isn't configured — set OGOFFCL_BASE_URL and OGOFFCL_API_KEY."
+    return ogoffcl.render_waitlist(await ogoffcl.waitlist())
+
+
+async def _store_analytics() -> str:
+    from inais.integrations import ogoffcl
+
+    if not settings().ogoffcl_enabled:
+        return "Store isn't configured — set OGOFFCL_BASE_URL and OGOFFCL_API_KEY."
+    return ogoffcl.render_analytics(await ogoffcl.analytics(7))
+
+
 ACTIONS: dict[str, Callable[[], Awaitable[str]]] = {}
 
 
@@ -178,6 +206,9 @@ def _register_actions() -> None:
         "nn": nn.status,
         "mood": lambda: journal.trend(14),
         "diag": diagnostics.run,
+        "storeoverview": _store_overview,
+        "storewaitlist": _store_waitlist,
+        "storeanalytics": _store_analytics,
     })
 
 
@@ -222,6 +253,7 @@ CONVERSATIONAL = {
     "drill": "Send /drill — I'll ask an interview question out loud and grade your answer.",
     "facts": "Send /facts — you can browse, correct and delete what I believe about you.",
     "why": "Send /why — I'll explain how I handled your last message.",
+    "storeorders": "Send /orders — live orders with buttons to open details and change status.",
 }
 
 

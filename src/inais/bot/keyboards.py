@@ -200,3 +200,85 @@ def persona_kb(current: dict) -> InlineKeyboardMarkup:
         row("brevity", BREVITY_VALUES),
         row("humour", HUMOUR_VALUES),
     ])
+
+
+# ---------- Store (ogoffcl) — prefixes: ord: ordl: ordst: paid: disc: lock: prod: ----------
+
+def store_order_kb(order_id: str) -> InlineKeyboardMarkup:
+    """Attached to a paid-order push notification — jump straight to the order."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🧾 View order", callback_data=f"ord:{order_id}"),
+    ]])
+
+
+def orders_list_kb(orders: list[dict], offset: int = 0, page: int = 8) -> InlineKeyboardMarkup:
+    from inais.integrations.ogoffcl import STATUS_LABELS
+
+    rows = []
+    for o in orders[:page]:
+        paid = "💰" if o.get("payment_status") == "paid" else "🕓"
+        label = f"{paid} {str(o.get('order_number', o.get('id')))[:18]} · {STATUS_LABELS.get(o.get('status', ''), '')}"
+        rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"ord:{o['id']}")])
+    if len(orders) > page:
+        rows.append([InlineKeyboardButton(text="More ▸", callback_data=f"ordl:{offset + page}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows or [[
+        InlineKeyboardButton(text="↻ Refresh", callback_data="ordl:0")]])
+
+
+def order_status_kb(order_id: str, current: str = "", paid: bool = True) -> InlineKeyboardMarkup:
+    from inais.integrations.ogoffcl import STATUS_ICONS, STATUS_LABELS, STATUSES
+
+    btns = [
+        InlineKeyboardButton(
+            text=("• " if s == current else "") + f"{STATUS_ICONS[s]} {STATUS_LABELS[s]}",
+            callback_data=f"ordst:{order_id}:{i}")
+        for i, s in enumerate(STATUSES)
+    ]
+    rows = [btns[i:i + 2] for i in range(0, len(btns), 2)]
+    if not paid:
+        rows.append([InlineKeyboardButton(text="💰 Mark paid", callback_data=f"paid:{order_id}")])
+    rows.append([InlineKeyboardButton(text="◀ Orders", callback_data="ordl:0")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def discounts_kb(codes: list[dict]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(
+            text=("⏸ " if c.get("is_active") else "✅ ") + str(c.get("code", ""))[:20],
+            callback_data=f"disc:tog:{c['id']}")]
+        for c in codes[:8]
+    ]
+    rows.append([InlineKeyboardButton(text="➕ New code", callback_data="disc:new")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def site_lock_kb(locked: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="🔓 Unlock store" if locked else "🔒 Lock store (show waitlist)",
+            callback_data="lock:off" if locked else "lock:on"),
+    ]])
+
+
+def products_list_kb(products: list[dict]) -> InlineKeyboardMarkup:
+    rows = []
+    for p in products[:8]:
+        stock = "∞" if p.get("stock") is None else p.get("stock")
+        eye = "👁" if p.get("is_active", True) else "🙈"
+        rows.append([InlineKeyboardButton(
+            text=f"{eye} {str(p.get('name', '?'))[:22]} · {stock}",
+            callback_data=f"prod:{p['id']}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows or [[
+        InlineKeyboardButton(text="↻ Refresh", callback_data="prod:list")]])
+
+
+def product_kb(product: dict) -> InlineKeyboardMarkup:
+    pid = product["id"]
+    active = product.get("is_active", True)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➖ Stock", callback_data=f"prod:dec:{pid}"),
+         InlineKeyboardButton(text="➕ Stock", callback_data=f"prod:inc:{pid}")],
+        [InlineKeyboardButton(text="🙈 Hide" if active else "👁 Show",
+                              callback_data=f"prod:vis:{pid}")],
+        [InlineKeyboardButton(text="◀ Products", callback_data="prod:list")],
+    ])

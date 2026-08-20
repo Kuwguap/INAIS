@@ -120,6 +120,12 @@ services:
       - key: GITHUB_POLL_MINUTES
         value: "15"
 
+      # ---------------- Store (ogoffcl e-commerce) ----------------
+      - key: OGOFFCL_BASE_URL
+        sync: false                   # website root, e.g. https://ogoffcl.store
+      - key: OGOFFCL_API_KEY
+        sync: false                   # shared bot↔site secret (also set as BOT_SECRET on Vercel)
+
       # ---------------- sub-agent swarm ----------------
       - key: MAX_PARALLEL_SUBAGENTS
         value: "4"                    # concurrency cap; 512 MB fits ~4 comfortably
