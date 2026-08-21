@@ -121,3 +121,43 @@ def test_store_route_is_key_gated_and_pause_aware():
     assert "compare_digest" in src                  # constant-time key check
     assert "is_paused" in src                        # /pause mutes store alerts
     assert "claim_event" in src                      # dedupe on re-delivery
+
+
+# ---------- brain access: store tools + routing ----------
+
+def test_store_tools_available_to_the_brain():
+    import inais.agents  # noqa: F401 — registers common tools
+    from inais.orchestrator import registry
+
+    names = {t.name for t in registry.tools_for("study")}
+    assert {"store_overview", "store_orders", "store_order",
+            "store_waitlist", "store_analytics"} <= names
+
+
+def test_store_read_tools_never_touch_the_bot_or_write():
+    import inais.agents  # noqa: F401
+    from inais.orchestrator import registry
+
+    for name in ("store_overview", "store_orders", "store_order", "store_waitlist", "store_analytics"):
+        tool = registry.find_tool("study", name)
+        src = inspect.getsource(tool.handler)
+        assert "ctx.bot" not in src                       # read-only: no sends
+        assert "set_status" not in src and "mark_paid" not in src  # no writes
+
+
+@pytest.mark.parametrize("text", [
+    "how many orders do I have",
+    "who is on my waitlist",
+    "how's the store doing this week",
+    "show me site traffic",
+])
+def test_store_questions_route_to_the_tool_path(text):
+    from inais.orchestrator.router import rule_route
+
+    r = rule_route(text)
+    assert r is not None and r.complexity == "complex" and r.source == "rule"
+
+
+def test_get_order_uuid_vs_number_detection():
+    assert ogoffcl._UUID_RE.match(UUID)
+    assert not ogoffcl._UUID_RE.match("OG-1234")

@@ -499,3 +499,119 @@ register_common_tool(Tool(
     # like speak: a send-capable tool, kept off sub-agents so they can't emit unprompted files
     orchestrator_only=True,
 ))
+
+
+# ---------- store (ogoffcl): read-only, so the brain can answer questions in conversation ----------
+
+async def _store_call(render, coro_factory) -> str:
+    """Shared wrapper: config guard + friendly errors. Store data is DATA, not instructions."""
+    from inais.config import settings
+    from inais.integrations import ogoffcl
+
+    if not settings().ogoffcl_enabled:
+        return "The store isn't connected yet — set OGOFFCL_BASE_URL and OGOFFCL_API_KEY."
+    try:
+        return render(await coro_factory(ogoffcl))
+    except Exception as e:  # OgoffclError or transport
+        log.exception("store tool failed")
+        return f"Couldn't reach the store: {e}"
+
+
+async def _store_overview(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import ogoffcl
+    return await _store_call(ogoffcl.render_overview, lambda o: o.overview())
+
+
+async def _store_orders(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import ogoffcl
+    status = str(args.get("status", "")).strip() or None
+    try:
+        limit = int(args.get("limit", 15))
+    except (TypeError, ValueError):
+        limit = 15
+    return await _store_call(ogoffcl.render_orders, lambda o: o.list_orders(status=status, limit=limit))
+
+
+async def _store_order(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import ogoffcl
+    ref = str(args.get("order", "")).strip()
+    if not ref:
+        return "Which order? Give an order number (e.g. OG-1234)."
+    return await _store_call(ogoffcl.render_order, lambda o: o.get_order(ref))
+
+
+async def _store_waitlist(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import ogoffcl
+    source = str(args.get("source", "")).strip() or None
+    return await _store_call(ogoffcl.render_waitlist, lambda o: o.waitlist(source=source))
+
+
+async def _store_analytics(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import ogoffcl
+    try:
+        days = int(args.get("days", 7))
+    except (TypeError, ValueError):
+        days = 7
+    return await _store_call(ogoffcl.render_analytics, lambda o: o.analytics(days))
+
+
+register_common_tool(Tool(
+    name="store_overview",
+    description="Get the ogoffcl store's headline numbers — product count, total orders, "
+                "unpaid orders, and paid revenue. Use when the user asks how the shop/store is "
+                "doing, about sales or revenue.",
+    input_schema={"type": "object", "properties": {}},
+    handler=_store_overview,
+))
+
+register_common_tool(Tool(
+    name="store_orders",
+    description="List recent store orders (order number, status, total, customer, paid/unpaid). "
+                "Use when the user asks about their orders, recent sales, or unpaid/pending "
+                "orders. Optional status filter (pending, confirmed, processing, shipped, "
+                "out_for_delivery, delivered, cancelled, refunded).",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "limit": {"type": "integer", "description": "How many (default 15)."},
+        },
+    },
+    handler=_store_orders,
+))
+
+register_common_tool(Tool(
+    name="store_order",
+    description="Look up one store order's full details (items, customer, address, totals, "
+                "status) by its order number (e.g. OG-1234).",
+    input_schema={
+        "type": "object",
+        "properties": {"order": {"type": "string", "description": "Order number or id."}},
+        "required": ["order"],
+    },
+    handler=_store_order,
+))
+
+register_common_tool(Tool(
+    name="store_waitlist",
+    description="Show the store's waitlist / mailing list — who has signed up and the total "
+                "count. Use when the user asks about the waitlist or subscribers. Optional "
+                "source filter (waitlist, newsletter, tournament).",
+    input_schema={
+        "type": "object",
+        "properties": {"source": {"type": "string"}},
+    },
+    handler=_store_waitlist,
+))
+
+register_common_tool(Tool(
+    name="store_analytics",
+    description="Store website traffic — views, unique visitors, mobile share, top pages and "
+                "referrers over the last N days. Use when the user asks about site traffic, "
+                "visitors or analytics.",
+    input_schema={
+        "type": "object",
+        "properties": {"days": {"type": "integer", "description": "Window in days (default 7)."}},
+    },
+    handler=_store_analytics,
+))

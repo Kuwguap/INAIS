@@ -13,6 +13,7 @@ only ever rendered as text, never followed as instructions.
 from __future__ import annotations
 
 import logging
+import re
 
 import aiohttp
 
@@ -88,8 +89,17 @@ async def list_orders(status: str | None = None, limit: int = 15) -> list[dict]:
     return data if isinstance(data, list) else (data or {}).get("orders", []) if data else []
 
 
-async def get_order(order_id: str) -> dict | None:
-    return await _get("order", id=order_id)
+_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                      r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+async def get_order(ref: str) -> dict | None:
+    """Look up by id (from a list button) or by order number (from conversation, e.g. OG-1234)."""
+    ref = str(ref).strip()
+    if not ref:
+        return None
+    key = "id" if _UUID_RE.match(ref) else "number"
+    return await _get("order", **{key: ref})
 
 
 async def waitlist(source: str | None = None, limit: int = 20) -> dict:

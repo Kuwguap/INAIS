@@ -20,6 +20,10 @@ _PLANNER_HINTS = ("task", "todo", "to-do", "remind", "reminder", "deadline", "sc
                   "calendar", "agenda", "plan my day", "plan my week", "due ")
 _STUDY_HINTS = ("exam", "quiz", "revise", "revision", "chapter", "lecture", "notes",
                 "study", "read to me", "flashcard", "syllabus")
+# Store (ogoffcl) questions asked in plain conversation must reach the store tools.
+_STORE_HINTS = ("ogoffcl", "waitlist", "the store", "my store", "the shop", "my shop",
+                "store sales", "site traffic", "site visitors", "discount code", "orders",
+                "the website", "my website")
 # Web intent: kept SPECIFIC on purpose. Bare "find"/"search" would over-route ordinary
 # questions onto the expensive tool path; these phrases only fire on a real browse request.
 _WEB_HINTS = ("search the web", "google", "look up", "look it up", "search online",
@@ -51,6 +55,8 @@ def rule_route(text: str) -> Route | None:
         return Route("planner", "complex", "rule")
     if any(h in lower for h in _STUDY_HINTS):
         return Route("study", "complex", "rule")
+    if any(h in lower for h in _STORE_HINTS):
+        return Route("study", "complex", "rule")  # store tools are common; complex = has tools
     # Browse/URL intent must reach the tool-bearing path. Placed AFTER the four agent hints
     # (so "search my email" still routes to email) and BEFORE greetings. Any agent carries
     # web_search/read_url as common tools, so forcing "complex" is the whole fix.
