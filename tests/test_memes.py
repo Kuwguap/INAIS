@@ -348,3 +348,54 @@ def test_signal_card_shows_full_market_and_trade_plan():
     assert "Invalidation" in card and "Target" in card
     # session + guardrail line
     assert "Not financial advice" in card
+
+
+# ---------- trending (live "show me coins" lane) ----------
+
+def test_rank_trending_dedupes_drops_majors_sorts_by_volume():
+    from inais.integrations.dexscreener import rank_trending
+
+    other = "So11111111111111111111111111111111111111112"  # a distinct valid-length mint
+    pairs = [
+        make_pair(symbol="AAA", volume_h24=100.0, liquidity_usd=10_000.0),
+        # same mint as AAA, deeper liquidity → this copy must win the dedupe
+        make_pair(symbol="AAA", volume_h24=100.0, liquidity_usd=50_000.0, fdv_usd=999.0),
+        make_pair(mint=other, symbol="BBB", volume_h24=500.0),
+        make_pair(symbol="SOL", mint="SoLmajor1111111111111111111111111111111111",
+                  volume_h24=9_999_999.0),   # a major → dropped despite huge volume
+    ]
+    ranked = rank_trending(pairs, limit=10)
+    syms = [p.symbol for p in ranked]
+    assert "SOL" not in syms                 # major excluded
+    assert syms == ["BBB", "AAA"]            # sorted by 24h volume, deduped by mint
+    aaa = next(p for p in ranked if p.symbol == "AAA")
+    assert aaa.liquidity_usd == 50_000.0     # kept the deepest-liquidity copy
+
+
+def test_rank_trending_respects_limit():
+    from inais.integrations.dexscreener import rank_trending
+
+    pairs = [make_pair(mint=f"mint{i}zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", symbol=f"S{i}",
+                       volume_h24=float(i)) for i in range(10)]
+    assert len(rank_trending(pairs, limit=3)) == 3
+
+
+def test_render_trending_card_is_clean_and_has_numbers():
+    from inais.memes.signal import render_trending_card
+
+    card = render_trending_card(make_pair(symbol="BONK http://evil.tld"), 2, age_min=360.0)
+    assert card.startswith("2. ")
+    assert "Liq" in card and "Vol24h" in card and "24h" in card
+    assert "http" not in card                # deployer string scrubbed by _clean
+
+
+def test_meme_token_kb_callback_within_budget():
+    from inais.bot.keyboards import meme_token_kb
+
+    kb = meme_token_kb(PAIR_ADDR, MINT)
+    track = [b for row in kb.inline_keyboard for b in row if b.callback_data]
+    assert track and all(len(b.callback_data.encode()) <= 64 for b in track)
+    assert any(b.callback_data == f"mmtr:{MINT}" for b in track)
+    # venue buttons are URL deep links, never callbacks
+    urls = [b for row in kb.inline_keyboard for b in row if b.url]
+    assert urls and all(b.callback_data is None for b in urls)

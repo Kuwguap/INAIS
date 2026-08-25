@@ -88,6 +88,38 @@ async def cmd_memes(message: Message) -> None:
         await message.answer(chunk)
 
 
+@router.message(Command("trending", "memenow"))
+async def cmd_trending(message: Message) -> None:
+    """Live Solana meme coins moving RIGHT NOW — a direct DexScreener read, no AI screen and
+    no pipeline. Works even before MEME_ENABLED: this is the plain 'show me coins' answer."""
+    import time
+    from datetime import UTC, datetime
+
+    from inais.memes import signal as signal_mod
+    from inais.memes.timing import session_line
+
+    await message.answer("🔎 Pulling live Solana movers…")
+    try:
+        pairs = await dexscreener.trending_pairs(limit=6)
+    except Exception:
+        log.exception("trending fetch failed")
+        pairs = []
+    if not pairs:
+        await message.answer("Couldn't reach DexScreener just now — try again in a minute.")
+        return
+    now_ms = int(time.time() * 1000)
+    await message.answer(
+        "🔥 Trending on Solana\n" + session_line(datetime.now(UTC)) + "\n\n"
+        "Top movers by 24h volume. These are UNSCREENED — I haven't run the rug audit, so open "
+        "the chart and check before you touch anything. Tap 📒 Track this to have me watch one "
+        "and alarm you on dips.")
+    for i, pair in enumerate(pairs, 1):
+        age = dexscreener.age_minutes(pair, now_ms)
+        await message.answer(
+            signal_mod.render_trending_card(pair, i, age),
+            reply_markup=keyboards.meme_token_kb(pair.pair_address, pair.mint))
+
+
 @router.message(Command("positions"))
 async def cmd_positions(message: Message) -> None:
     if not await _guard(message):
@@ -222,17 +254,67 @@ async def on_real_entry(cb: CallbackQuery, state: FSMContext) -> None:
             "How much, in USD? e.g. `75`")
 
 
+@router.callback_query(F.data.startswith("mmtr:"))
+async def on_track(cb: CallbackQuery, state: FSMContext) -> None:
+    """Track a live coin from /trending: record the token, then log the size — no signal
+    needed. Writes to the DB, so it needs MEME_ENABLED + the database (the watch job too)."""
+    mint = (cb.data or "mmtr:").split(":", 1)[1]
+    if not links.valid_address(mint):
+        await cb.answer("Bad token address.")
+        return
+    if not settings().meme_enabled or db.pool() is None:
+        await cb.answer("Tracking needs MEME_ENABLED + the database so I can watch it. "
+                        "Turn those on and tap again.", show_alert=True)
+        return
+    pair = (await dexscreener.pairs_for_mints([mint])).get(mint)
+    if pair is None or pair.price_usd is None:
+        await cb.answer("No live price right now — try again in a minute.", show_alert=True)
+        return
+    token_id = await store.ensure_token(pair)
+    if token_id is None:
+        await cb.answer("Couldn't record that token — try again shortly.", show_alert=True)
+        return
+    await cb.answer()
+    await state.set_state(MemeStates.waiting_size)
+    await state.update_data(track={
+        "token_id": token_id, "mint": mint, "pair_address": pair.pair_address,
+        "symbol": pair.symbol, "entry": pair.price_usd, "liquidity": pair.liquidity_usd})
+    if cb.message:
+        await cb.message.answer(
+            f"📒 Tracking {pair.symbol} at ${pair.price_usd:.10g}. How much did you put in, "
+            "USD? e.g. `75`  (send `0` to just watch the price, no position size)")
+
+
 @router.message(MemeStates.waiting_size, F.text & ~F.text.startswith("/"))
 async def on_size_input(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await state.clear()
     raw = (message.text or "").replace("$", "").strip()
+    track = data.get("track")
     try:
         size = float(raw)
-        if not (0 < size < 1_000_000):
+        # a tracked live coin may be watch-only (size 0); a signal entry must be a real amount
+        if not ((0.0 if track else 1e-9) <= size < 1_000_000):
             raise ValueError
     except ValueError:
         await message.answer("Couldn't read that as a USD amount — tap the button again.")
+        return
+    if track:
+        price = await _live_price(track["mint"]) or track.get("entry")
+        if price is None:
+            await message.answer("No live price right now — tap Track again in a minute.")
+            return
+        pos_id = await store.open_position(
+            signal_id=None, token_id=track["token_id"], mint=track["mint"],
+            pair_address=track.get("pair_address"), symbol=track["symbol"], kind="real",
+            entry_price=float(price), size_usd=size,
+            stop=None, target=None, liquidity=track.get("liquidity"))
+        await message.answer(
+            f"📒 Tracking {track['symbol']} · ${size:.0f} @ ${float(price):.10g}. I watch it "
+            "every 60s and ALARM on sharp dips and liquidity pulls. No stop/target set — run "
+            "/memescan on it for a full signal with levels.",
+            reply_markup=keyboards.meme_position_kb(pos_id, track.get("pair_address") or "",
+                                                    track["mint"]))
         return
     sig = await store.get_signal(int(data.get("signal_id", 0)))
     if not sig:

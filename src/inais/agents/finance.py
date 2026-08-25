@@ -65,6 +65,25 @@ async def _get_transfers(ctx: ToolContext, args: dict) -> str:
     return "\n".join(lines)
 
 
+async def _get_trending_memes(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import dexscreener
+
+    try:
+        pairs = await dexscreener.trending_pairs(limit=8)
+    except Exception:
+        return "Couldn't reach DexScreener just now."
+    if not pairs:
+        return "No live movers came back from DexScreener just now."
+    lines = ["Live Solana movers (24h volume, UNSCREENED — no rug audit yet):"]
+    for i, p in enumerate(pairs, 1):
+        lines.append(
+            f"{i}. {p.symbol}: ${p.price_usd:.10g} · liq ${(p.liquidity_usd or 0):,.0f}"
+            f" · vol24h ${(p.volume_h24 or 0):,.0f} · 1h {p.change_h1 or 0:+.1f}%"
+            f" · 24h {p.change_h24 or 0:+.1f}%")
+    lines.append("Tell the user to send /trending for tappable chart + wallet + track buttons.")
+    return "\n".join(lines)
+
+
 async def _get_meme_signals(ctx: ToolContext, args: dict) -> str:
     from inais.memes import store as meme_store
 
@@ -160,6 +179,15 @@ register_agent(AgentDef(
             input_schema={"type": "object", "properties": {
                 "days": {"type": "integer", "description": "lookback window, default 30"}}},
             handler=_get_transfers,
+        ),
+        Tool(
+            name="get_trending_memes",
+            description="Live Solana meme coins moving right now by 24h volume, straight from "
+                        "DexScreener (UNSCREENED — no rug audit). Use when the user asks what's "
+                        "trending / what meme coins to look at. Read-only; works even if the "
+                        "scout is off.",
+            input_schema={"type": "object", "properties": {}},
+            handler=_get_trending_memes,
         ),
         Tool(
             name="get_meme_signals",

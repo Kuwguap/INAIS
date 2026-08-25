@@ -36,6 +36,19 @@ async def note_seen(pair: Pair) -> int | None:
     return row["id"] if row else None
 
 
+async def ensure_token(pair: Pair) -> int | None:
+    """Insert-or-return the token id (for tracking a live coin that never came from a signal)."""
+    p = _pool()
+    if p is None:
+        return None
+    row = await p.fetchrow(
+        "insert into meme_tokens (mint, pair_address, symbol, name) values ($1, $2, $3, $4)"
+        " on conflict (mint) do update set pair_address = excluded.pair_address,"
+        " symbol = excluded.symbol, last_checked_at = now() returning id",
+        pair.mint, pair.pair_address, pair.symbol, pair.name)
+    return row["id"] if row else None
+
+
 async def mark_rejected(token_id: int, reason: str, pair: Pair,
                         report: RugReport | None) -> None:
     await _pool().execute(

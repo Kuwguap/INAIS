@@ -60,8 +60,9 @@ SECTIONS: dict[str, tuple[str, str, list[tuple[str, str]]]] = {
         ("📖 Library", "booklibrary"), ("🏭 Factory", "bookfactory"),
     ]),
     "memes": ("🎯 Memes", "🎯 Meme intelligence", [
-        ("📡 Scout", "memescout"), ("📒 Positions", "memepositions"),
-        ("🧪 Paper book", "memepaper"), ("📊 Stats", "memestatsview"),
+        ("🔥 Trending", "memetrending"), ("📡 Scout", "memescout"),
+        ("📒 Positions", "memepositions"), ("🧪 Paper book", "memepaper"),
+        ("📊 Stats", "memestatsview"),
     ]),
     "system": ("⚙️ System", "⚙️ System", [
         ("📈 Status", "status"), ("🩺 Diagnostics", "diag"),
@@ -330,6 +331,8 @@ CONVERSATIONAL = {
     "facts": "Send /facts — you can browse, correct and delete what I believe about you.",
     "why": "Send /why — I'll explain how I handled your last message.",
     "storeorders": "Send /orders — live orders with buttons to open details and change status.",
+    "memetrending": "Send /trending — live Solana meme coins moving right now, each with "
+                    "chart + wallet buttons and one-tap tracking.",
     "booklibrary": "Send /library — browse your finished ebooks and download them right here.",
 }
 

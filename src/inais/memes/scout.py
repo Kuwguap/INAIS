@@ -22,7 +22,14 @@ async def run_scout(bot) -> int:
     """One pass. Returns how many signals were created (suppressed included)."""
     cfg = settings()
     now_ms = int(time.time() * 1000)
-    pairs = await dexscreener.latest_pairs()
+    # Two discovery lanes merged, deduped by mint: the promo feed (latest_pairs) is often empty,
+    # so the always-populated trending search keeps the scout fed. Both are read-only.
+    seen_mints: set[str] = set()
+    pairs: list[dexscreener.Pair] = []
+    for pair in (await dexscreener.latest_pairs()) + (await dexscreener.trending_pairs(limit=20)):
+        if pair.mint not in seen_mints:
+            seen_mints.add(pair.mint)
+            pairs.append(pair)
     if not pairs:
         return 0
 

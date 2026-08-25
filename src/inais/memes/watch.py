@@ -56,10 +56,11 @@ def pending_alerts(pos: dict, price: float, liquidity: float | None, *,
             state["dip"] = False
         if not state.get("dip") and drawdown >= dip_pct:
             state["dip"] = True
+            stop_txt = (f"stop sits at ${float(pos['stop_price']):.10g}"
+                        if pos.get("stop_price") else "no stop set")
             alerts.append(Alert("dip", pos["id"],
                                 f"📉 {sym} down {drawdown:.0f}% from peak ${peak:.10g}\n{ctx}\n"
-                                f"Decide: exit via the buttons, or hold — stop sits at"
-                                f" ${float(pos.get('stop_price') or 0):.10g}"))
+                                f"Decide: exit via the buttons, or hold — {stop_txt}"))
 
     stop = pos.get("stop_price")
     if stop and price <= float(stop) and not state.get("stop"):

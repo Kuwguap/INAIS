@@ -132,6 +132,19 @@ def _pct_move(from_price: float | None, to_price: float) -> str:
     return f"{(to_price - from_price) / from_price * 100:+.1f}%"
 
 
+def render_trending_card(pair: Pair, rank: int, age_min: float | None = None) -> str:
+    """A live coin straight off DexScreener for /trending — real numbers, no AI screen yet.
+    Pure: the same attacker-controlled strings get _clean'd; the caller adds venue buttons."""
+    age_txt = f"{age_min / 60:.1f}h" if age_min is not None else "?"
+    return "\n".join([
+        f"{rank}. {_clean(pair.symbol)} — {_px(pair.price_usd)}",
+        f"   Liq {_usd(pair.liquidity_usd)} · Vol24h {_usd(pair.volume_h24)}"
+        f" · FDV {_usd(pair.fdv_usd)} · age {age_txt}",
+        f"   5m {pair.change_m5 or 0:+.1f}% · 1h {pair.change_h1 or 0:+.1f}%"
+        f" · 24h {pair.change_h24 or 0:+.1f}% · buys/sells 1h {pair.buys_h1}/{pair.sells_h1}",
+    ])
+
+
 def render_signal_card(sig: dict, pair: Pair, flags: list[str],
                        report: RugReport | None = None,
                        age_min: float | None = None) -> str:

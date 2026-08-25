@@ -149,8 +149,37 @@ async def latest_pairs() -> list[Pair]:
 
 async def search_pairs(query: str) -> list[Pair]:
     async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
-        data = await _get(session, "/latest/dex/search", {"q": query})  # VERIFY at implementation
+        data = await _get(session, "/latest/dex/search", {"q": query})
         return _pairs_from(data)
+
+
+# Broad terms whose search results are dominated by active Solana meme pairs. The /latest/dex
+# /search endpoint is the reliable, always-populated lane (unlike the promo-only profiles feed).
+TRENDING_QUERIES = ("SOL", "pump", "bonk", "wif")
+# Majors/quotes that are not meme coins — kept out of the trending list.
+_NOT_MEMES = {"SOL", "WSOL", "USDC", "USDT", "USDH", "JLP", "JUP", "JITOSOL", "MSOL", "BSOL", "ETH", "BTC"}
+
+
+def rank_trending(pairs: list[Pair], limit: int) -> list[Pair]:
+    """Pure: dedupe by mint (keep deepest liquidity), drop majors, rank by 24h volume."""
+    best: dict[str, Pair] = {}
+    for p in pairs:
+        if p.symbol.upper() in _NOT_MEMES:
+            continue
+        cur = best.get(p.mint)
+        if cur is None or (p.liquidity_usd or 0) > (cur.liquidity_usd or 0):
+            best[p.mint] = p
+    return sorted(best.values(), key=lambda p: p.volume_h24 or 0, reverse=True)[:limit]
+
+
+async def trending_pairs(limit: int = 12) -> list[Pair]:
+    """What's actually moving on Solana right now, by 24h volume — a live 'show me coins'
+    list independent of the scout pipeline. Merges a few broad searches; degrades to []."""
+    collected: list[Pair] = []
+    async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
+        for q in TRENDING_QUERIES:
+            collected.extend(_pairs_from(await _get(session, "/latest/dex/search", {"q": q})))
+    return rank_trending(collected, limit)
 
 
 async def get_pair(pair_address: str) -> Pair | None:

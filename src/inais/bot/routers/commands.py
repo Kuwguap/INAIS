@@ -37,7 +37,7 @@ Brain — /learned /learn /curiosity /brain /train /facts /forget /mood /journal
 Dev   — /github
 Store — /store /orders /waitlist /analytics /discounts /lock /products
 Books — /ebook /ebookideas /books /library
-Memes — /memes /positions /paper /memestats /memescan
+Memes — /trending /memes /positions /paper /memestats /memescan
 System— /status /diag /why /pause /resume /persona /reflect /reset /menu"""
 
 

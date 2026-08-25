@@ -366,3 +366,13 @@ def meme_positions_list_kb(positions: list[dict]) -> InlineKeyboardMarkup | None
             text=f"{kind} {str(p.get('symbol', '?'))[:16]}{pnl} · close"[:60],
             callback_data=f"mmcl:{p['id']}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def meme_token_kb(pair_address: str, mint: str) -> InlineKeyboardMarkup:
+    """A live coin from /trending: venue deep links + one-tap track (mmtr:<mint>)."""
+    rows = []
+    venue = _meme_venue_row(pair_address, mint)
+    if venue:
+        rows.append(venue)
+    rows.append([InlineKeyboardButton(text="📒 Track this", callback_data=f"mmtr:{mint}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
