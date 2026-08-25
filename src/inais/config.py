@@ -84,6 +84,23 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""  # service_role key: private-bucket asset downloads
     guapbooks_poll_minutes: int = 2    # how often finished books are delivered to Telegram
 
+    # --- Memes (Solana meme-coin intelligence — read-only, never executes trades) ---
+    meme_enabled: bool = False           # master gate for scout/watch/reflect jobs
+    meme_scout_minutes: int = 5
+    meme_daily_budget_usd: float = 1.0   # hard ceiling on meme_* LLM spend per day
+    meme_max_signals_per_day: int = 5
+    meme_min_liquidity_usd: float = 20000.0
+    meme_min_age_minutes: int = 30
+    meme_max_top10_holder_pct: float = 40.0
+    meme_dip_alert_pct: float = 20.0     # alarm when price falls this far from peak
+    meme_signal_window_hours: int = 24   # settlement window for win/loss/expired
+    meme_min_confidence: float = 0.65    # paper auto-open threshold
+    meme_min_nn_score: float = 0.35      # suppression floor once the head beats chance
+    meme_paper_enabled: bool = True
+    meme_paper_bankroll: float = 1000.0  # virtual dollars
+    meme_paper_size_usd: float = 50.0    # per paper position
+    meme_trail_pct: float = 30.0         # trail-from-peak paper close
+
     # --- Sub-agent swarm (M10) ---
     subagent_model: str = "claude-haiku-4-5"
     max_parallel_subagents: int = 4

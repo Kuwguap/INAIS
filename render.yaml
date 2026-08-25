@@ -134,6 +134,38 @@ services:
       - key: GUAPBOOKS_POLL_MINUTES
         value: "2"
 
+      # ---------------- Memes (Solana intelligence — read-only, never executes) ----------------
+      - key: MEME_ENABLED
+        value: "false"                # master gate for the scout/watch/reflect jobs
+      - key: MEME_SCOUT_MINUTES
+        value: "5"
+      - key: MEME_DAILY_BUDGET_USD
+        value: "1.0"                  # hard ceiling on meme_* LLM spend per day
+      - key: MEME_MAX_SIGNALS_PER_DAY
+        value: "5"
+      - key: MEME_MIN_LIQUIDITY_USD
+        value: "20000"
+      - key: MEME_MIN_AGE_MINUTES
+        value: "30"
+      - key: MEME_MAX_TOP10_HOLDER_PCT
+        value: "40.0"
+      - key: MEME_DIP_ALERT_PCT
+        value: "20.0"
+      - key: MEME_SIGNAL_WINDOW_HOURS
+        value: "24"
+      - key: MEME_MIN_CONFIDENCE
+        value: "0.65"
+      - key: MEME_MIN_NN_SCORE
+        value: "0.35"
+      - key: MEME_PAPER_ENABLED
+        value: "true"
+      - key: MEME_PAPER_BANKROLL
+        value: "1000.0"
+      - key: MEME_PAPER_SIZE_USD
+        value: "50.0"
+      - key: MEME_TRAIL_PCT
+        value: "30.0"
+
       # ---------------- sub-agent swarm ----------------
       - key: MAX_PARALLEL_SUBAGENTS
         value: "4"                    # concurrency cap; 512 MB fits ~4 comfortably
