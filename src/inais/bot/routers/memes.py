@@ -54,12 +54,17 @@ async def _live_price(mint: str) -> float | None:
 
 @router.message(Command("memes"))
 async def cmd_memes(message: Message) -> None:
+    from datetime import UTC, datetime
+
+    from inais.memes.timing import session_line
+
     if not await _guard(message):
         return
     s = await store.scout_stats()
     recent = await store.recent_signals()
     lines = [
         "🎯 Meme scout",
+        session_line(datetime.now(UTC)),
         "",
         f"Seen: {s.get('seen', 0)} tokens ({s.get('seen_today', 0)} today)"
         f" · rejected {s.get('rejected', 0)} · signaled {s.get('signaled', 0)}",
@@ -67,11 +72,20 @@ async def cmd_memes(message: Message) -> None:
     if recent:
         lines.append("\nRecent signals:")
         for r in recent:
-            vetoed = " (vetoed)" if r["suppressed"] else ""
-            lines.append(f"• {r['symbol']} — {r['status']}, conf {r['confidence']:.0%}{vetoed}")
+            icon = {"open": "🕓", "win": "✅", "loss": "❌", "expired": "⏳"}.get(r["status"], "•")
+            vetoed = " · vetoed by head" if r["suppressed"] else ""
+            entry, stop, target = r["entry_price"], r["stop_price"], r["target_price"]
+            outcome = ""
+            if r["status"] != "open" and r.get("settle_price") and entry:
+                outcome = f" → settled {((r['settle_price'] - entry) / entry * 100):+.0f}%"
+            lines.append(
+                f"{icon} {r['symbol']} · conf {r['confidence']:.0%}{vetoed}\n"
+                f"   in ${entry:.10g} · stop ${stop:.10g} · tgt ${target:.10g}"
+                f" · liq ${(r['liquidity_at_signal'] or 0):,.0f}{outcome}")
     else:
         lines.append("\nNo signals yet — the scout reports here when something survives the screen.")
-    await message.answer("\n".join(lines))
+    for chunk in split_message("\n".join(lines)):
+        await message.answer(chunk)
 
 
 @router.message(Command("positions"))
@@ -87,9 +101,19 @@ async def cmd_positions(message: Message) -> None:
     for p in positions:
         kind = "🧪" if p["kind"] == "paper" else "📒"
         entry, last = p["entry_price"], p.get("last_price")
-        pnl = f" · {((last - entry) / entry * 100):+.1f}%" if last and entry else ""
-        lines.append(f"{kind} {p['symbol']} · in ${entry:.10g} · ${p['size_usd']:.0f}{pnl}")
-    await message.answer("\n".join(lines),
+        pnl = ""
+        if last and entry:
+            pct = (last - entry) / entry * 100
+            pnl = f" · now ${last:.10g} ({pct:+.1f}%, ${pct / 100 * p['size_usd']:+.2f})"
+        stop, target = p.get("stop_price"), p.get("target_price")
+        levels = (f"   stop ${float(stop):.10g}" if stop else "   stop —")
+        levels += f" · tgt ${float(target):.10g}" if target else " · tgt —"
+        if p.get("peak_price"):
+            levels += f" · peak ${p['peak_price']:.10g}"
+        lines.append(f"{kind} {p['symbol']} · ${p['size_usd']:.0f} in at ${entry:.10g}{pnl}\n{levels}")
+    for chunk in split_message("\n".join(lines)):
+        await message.answer(chunk)
+    await message.answer("Tap to log an exit:",
                          reply_markup=keyboards.meme_positions_list_kb(positions))
 
 

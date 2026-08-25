@@ -308,3 +308,43 @@ def test_substring_traps_do_not_route_to_finance(text):
 
     r = rule_route(text)
     assert r is None or r.agent != "finance"
+
+
+# ---------- trading-session timing ----------
+
+def test_trading_session_windows():
+    from datetime import UTC, datetime
+
+    from inais.memes import timing
+
+    # Wednesday 16:00 UTC = US session, prime
+    _, prime = timing.trading_session(datetime(2026, 1, 7, 16, 0, tzinfo=UTC))
+    assert prime is True
+    # Saturday 16:00 UTC = US hours but weekend, not prime
+    _, prime = timing.trading_session(datetime(2026, 1, 10, 16, 0, tzinfo=UTC))
+    assert prime is False
+    # Wednesday 03:00 UTC = Asia/overnight, not prime
+    label, prime = timing.trading_session(datetime(2026, 1, 7, 3, 0, tzinfo=UTC))
+    assert prime is False and "thinnest" in label
+    # session_line always carries a clock/marker
+    assert timing.session_line(datetime(2026, 1, 7, 16, 0, tzinfo=UTC)).startswith("🟢")
+
+
+def test_signal_card_shows_full_market_and_trade_plan():
+    from inais.memes.signal import render_signal_card
+
+    pair = make_pair()
+    report = make_report()
+    card = render_signal_card(
+        {"thesis": "Real volume, clean holders.", "confidence": 0.72,
+         "entry": 0.000021, "stop": 0.000016, "target": 0.000035, "nn_score": 0.6},
+        pair, ["young pair"], report, age_min=360.0)
+    # market data present
+    assert "Liquidity" in card and "Vol 24h" in card and "FDV" in card
+    # rug audit present
+    assert "LP locked" in card and "holders" in card
+    # concrete trade plan present
+    assert "Trade plan" in card and "Jupiter" in card and "R:R" in card
+    assert "Invalidation" in card and "Target" in card
+    # session + guardrail line
+    assert "Not financial advice" in card

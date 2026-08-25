@@ -116,19 +116,67 @@ async def generate(pair: Pair, report: RugReport, flags: list[str]) -> dict | No
             "entry": entry, "stop": stop, "target": target}
 
 
-def render_signal_card(sig: dict, pair: Pair, flags: list[str]) -> str:
-    def px(v) -> str:
-        return f"${v:.10g}" if v is not None else "?"
+def _usd(v, decimals: int = 0) -> str:
+    if v is None:
+        return "?"
+    return f"${v:,.{decimals}f}"
+
+
+def _px(v) -> str:
+    return f"${v:.10g}" if v is not None else "?"
+
+
+def _pct_move(from_price: float | None, to_price: float) -> str:
+    if not from_price:
+        return "?"
+    return f"{(to_price - from_price) / from_price * 100:+.1f}%"
+
+
+def render_signal_card(sig: dict, pair: Pair, flags: list[str],
+                       report: RugReport | None = None,
+                       age_min: float | None = None) -> str:
+    """The full picture: thesis, real market data, rug audit, and the exact trade plan."""
+    from datetime import UTC, datetime
+
+    from inais.memes.timing import session_line
+
+    price = pair.price_usd
+    entry, stop, target = sig["entry"], sig["stop"], sig["target"]
+    rr = (target - entry) / (entry - stop) if entry > stop else 0.0
+    age_txt = f"{age_min / 60:.1f}h" if age_min is not None else "?"
 
     lines = [
         f"🎯 {_clean(pair.symbol)} — meme signal",
+        session_line(datetime.now(UTC)),
         "",
         sig["thesis"],
         "",
-        f"Now {px(pair.price_usd)} · entry {px(sig['entry'])} · "
-        f"invalidation {px(sig['stop'])} · target {px(sig['target'])}",
+        "📊 Market",
+        f"Price {_px(price)} · Liquidity {_usd(pair.liquidity_usd)} · FDV {_usd(pair.fdv_usd)}",
+        f"Vol 24h {_usd(pair.volume_h24)} (1h {_usd(pair.volume_h1)}) · age {age_txt}",
+        f"Moves: 5m {pair.change_m5 or 0:+.1f}% · 1h {pair.change_h1 or 0:+.1f}%"
+        f" · 24h {pair.change_h24 or 0:+.1f}% · buys/sells 1h {pair.buys_h1}/{pair.sells_h1}",
+    ]
+    if report is not None:
+        lines.append(
+            f"🛡 Rug audit: LP locked {report.lp_locked_pct or 0:.0f}%"
+            f" · top10 hold {report.top10_holder_pct or 0:.0f}%"
+            f" · {report.holder_count or '?'} holders"
+            f" · risk score {report.score if report.score is not None else '?'}"
+            f" · authorities {'renounced ✅' if not report.mint_authority_active and not report.freeze_authority_active else 'ACTIVE ⚠️'}")
+    lines += [
+        "",
+        "🧭 Trade plan (if you take it — your wallet, your tap)",
+        f"1. 🟢 Jupiter (or ⚡ Photon) → swap SOL → {_clean(pair.symbol)}",
+        f"2. Entry {_px(entry)} — now {_px(price)} ({_pct_move(entry, price) if price else '?'} vs entry)",
+        f"3. Invalidation {_px(stop)} ({_pct_move(entry, stop)} from entry) — thesis dead below this",
+        f"4. Target {_px(target)} ({_pct_move(entry, target)}) · R:R ≈ {rr:.1f}",
+        "5. Tap 📒 I'm in after the swap — I watch it every 60s and ALARM on dips,"
+        " the stop, the target, and liquidity pulls",
+        "",
         f"Confidence: {sig['confidence']:.0%}"
-        + (f" · learned score: {sig['nn_score']:.0%}" if sig.get("nn_score") is not None else ""),
+        + (f" · learned score: {sig['nn_score']:.0%}" if sig.get("nn_score") is not None else
+           " · learned head: still training"),
     ]
     if flags:
         lines.append("⚠️ " + "; ".join(flags[:4]))
@@ -168,7 +216,9 @@ async def create_and_send(bot, token_id: int, pair: Pair, report: RugReport,
         return signal_id
 
     msg = await bot.send_message(
-        cfg.owner_telegram_id, render_signal_card(sig, pair, flags),
+        cfg.owner_telegram_id,
+        render_signal_card(sig, pair, flags, report,
+                           age_minutes(pair, int(time.time() * 1000))),
         reply_markup=keyboards.meme_signal_kb(signal_id, pair.pair_address, pair.mint),
         disable_web_page_preview=True)
     await store.set_signal_message(signal_id, msg.message_id)

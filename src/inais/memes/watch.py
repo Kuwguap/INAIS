@@ -42,6 +42,13 @@ def pending_alerts(pos: dict, price: float, liquidity: float | None, *,
     sym = pos.get("symbol", "?")
     change_from_entry = (price - entry) / entry * 100 if entry > 0 else None
 
+    size = pos.get("size_usd")
+    pnl_usd = ""
+    if change_from_entry is not None and size:
+        pnl_usd = f", ${change_from_entry / 100 * float(size):+.2f}"
+    ctx = (f"now ${price:.10g} · {_pct(change_from_entry)} vs entry"
+           f" ${entry:.10g}{pnl_usd}")
+
     # dip from peak, with hysteresis: re-arms after recovering half the dip threshold
     if peak > 0:
         drawdown = (peak - price) / peak * 100
@@ -50,20 +57,23 @@ def pending_alerts(pos: dict, price: float, liquidity: float | None, *,
         if not state.get("dip") and drawdown >= dip_pct:
             state["dip"] = True
             alerts.append(Alert("dip", pos["id"],
-                                f"📉 {sym} down {drawdown:.0f}% from peak"
-                                f" ({_pct(change_from_entry)} vs entry)"))
+                                f"📉 {sym} down {drawdown:.0f}% from peak ${peak:.10g}\n{ctx}\n"
+                                f"Decide: exit via the buttons, or hold — stop sits at"
+                                f" ${float(pos.get('stop_price') or 0):.10g}"))
 
     stop = pos.get("stop_price")
     if stop and price <= float(stop) and not state.get("stop"):
         state["stop"] = True
         alerts.append(Alert("stop", pos["id"],
-                            f"🛑 {sym} hit invalidation ({_pct(change_from_entry)} vs entry)"))
+                            f"🛑 {sym} broke invalidation ${float(stop):.10g}\n{ctx}\n"
+                            f"The thesis is dead by its own rule — exit buttons below."))
 
     target = pos.get("target_price")
     if target and price >= float(target) and not state.get("target"):
         state["target"] = True
         alerts.append(Alert("target", pos["id"],
-                            f"🎯 {sym} hit target ({_pct(change_from_entry)} vs entry)"))
+                            f"🎯 {sym} hit target ${float(target):.10g}\n{ctx}\n"
+                            f"Take it or trail it — your call, buttons below."))
 
     liq_entry = pos.get("liquidity_at_entry")
     if (liquidity is not None and liq_entry
@@ -71,7 +81,9 @@ def pending_alerts(pos: dict, price: float, liquidity: float | None, *,
             and not state.get("liq_drop")):
         state["liq_drop"] = True
         alerts.append(Alert("liq_drop", pos["id"],
-                            f"🚨 {sym} liquidity halved since entry — possible rug"))
+                            f"🚨 {sym} liquidity ${liquidity:,.0f} — HALVED from"
+                            f" ${float(liq_entry):,.0f} at entry. Rug pattern.\n{ctx}\n"
+                            f"Exits get worse by the minute when this is real."))
     return alerts, state
 
 

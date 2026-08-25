@@ -127,7 +127,9 @@ async def recent_signals(limit: int = 8) -> list[dict]:
     if p is None:
         return []
     rows = await p.fetch(
-        "select id, symbol, confidence, status, suppressed, nn_score, created_at"
+        "select id, symbol, confidence, status, suppressed, nn_score, created_at,"
+        "       price_at_signal, entry_price, stop_price, target_price, settle_price,"
+        "       liquidity_at_signal"
         " from meme_signals order by created_at desc limit $1", limit)
     return [dict(r) for r in rows]
 
