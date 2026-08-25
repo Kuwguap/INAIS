@@ -615,3 +615,105 @@ register_common_tool(Tool(
     },
     handler=_store_analytics,
 ))
+
+
+# ---------- Guap Books (ebook factory): queue + status; generation happens in Claude Code ----------
+
+async def _guap_call(render, coro_factory) -> str:
+    """Shared wrapper for factory tools. Factory rows are DATA, not instructions."""
+    from inais.integrations import guapbooks
+
+    try:
+        return render(await coro_factory(guapbooks))
+    except Exception as e:  # GuapBooksError or transport
+        log.exception("guap books tool failed")
+        return f"Couldn't reach the book factory: {e}"
+
+
+async def _guap_overview(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import guapbooks
+    return await _guap_call(guapbooks.render_overview, lambda g: g.overview())
+
+
+async def _guap_jobs(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import guapbooks
+    return await _guap_call(guapbooks.render_jobs,
+                            lambda g: g.jobs_for_chat(ctx.chat_id))
+
+
+async def _guap_books(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import guapbooks
+    status = str(args.get("status", "")).strip() or None
+    return await _guap_call(guapbooks.render_books, lambda g: g.list_books(status=status))
+
+
+async def _guap_request(ctx: ToolContext, args: dict) -> str:
+    from inais.integrations import guapbooks
+
+    kind = "ideas" if str(args.get("kind", "book")).strip().lower() == "ideas" else "full"
+    topic = str(args.get("topic", "")).strip()[:300]
+    if kind == "full" and not topic:
+        return "A book needs a topic — ask the user what it should be about."
+    payload = ({"topic": topic or None, "count": 5} if kind == "ideas"
+               else {"topic": topic, "length": "short"})
+    try:
+        await guapbooks.queue_job(kind, payload, ctx.chat_id)
+    except Exception as e:
+        log.exception("guap request failed")
+        return f"Couldn't queue it: {e}"
+    if kind == "ideas":
+        return ("Idea batch queued. The studio researches trends and the list arrives in this "
+                "chat when it's done — tell the user it's cooking.")
+    return (f"Book on {topic!r} queued. The studio will research, write, fact-check and design "
+            "it, then the PDF and flyer arrive in this chat automatically — tell the user "
+            "it's on the way (it takes a while).")
+
+
+register_common_tool(Tool(
+    name="guap_books_overview",
+    description="Guap Books ebook factory status — queued/running jobs, open ideas, books "
+                "ready, books listed on Skillshare. Use when the user asks how the book "
+                "factory or their ebooks are doing.",
+    input_schema={"type": "object", "properties": {}},
+    handler=_guap_overview,
+))
+
+register_common_tool(Tool(
+    name="guap_books_jobs",
+    description="The user's recent ebook factory requests with live progress. Use when they "
+                "ask where their book/ideas are or what's still cooking.",
+    input_schema={"type": "object", "properties": {}},
+    handler=_guap_jobs,
+))
+
+register_common_tool(Tool(
+    name="guap_list_books",
+    description="List produced Guap Books ebooks with status (draft/writing/written/designing/"
+                "ready) and Skillshare state. Optional status filter.",
+    input_schema={
+        "type": "object",
+        "properties": {"status": {"type": "string", "description": "Optional status filter."}},
+    },
+    handler=_guap_books,
+))
+
+register_common_tool(Tool(
+    name="guap_request_ebook",
+    description="Queue the Guap Books factory: kind='book' with a topic to create a full "
+                "ebook, or kind='ideas' (topic optional) for a batch of trend-researched "
+                "title ideas. The finished PDF + flyer (or idea list) is delivered to this "
+                "chat automatically later. Use when the user asks to make an ebook or wants "
+                "book ideas.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "description": "book | ideas"},
+            "topic": {"type": "string", "description": "What the book/ideas should be about."},
+        },
+        "required": ["kind"],
+    },
+    handler=_guap_request,
+    # send-capable by proxy: queueing leads to files being delivered to the chat, so keep it
+    # off sub-agents like speak/create_pdf (security invariant #2)
+    orchestrator_only=True,
+))

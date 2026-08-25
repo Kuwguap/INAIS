@@ -155,6 +155,14 @@ def setup(bot) -> AsyncIOScheduler:
         except Exception:
             log.exception("github poll failed")
 
+    async def books_poll() -> None:
+        try:
+            from inais.jobs import books_watch
+
+            await books_watch.poll(bot)
+        except Exception:
+            log.exception("guap books poll failed")
+
     async def proactive_check() -> None:
         await proactive.scheduled(bot)
 
@@ -245,6 +253,9 @@ def setup(bot) -> AsyncIOScheduler:
     if cfg.github_enabled:
         scheduler.add_job(github_poll, "interval", minutes=cfg.github_poll_minutes,
                           id="github_poll", max_instances=1, coalesce=True)
+    if cfg.guapbooks_enabled:
+        scheduler.add_job(books_poll, "interval", minutes=cfg.guapbooks_poll_minutes,
+                          id="books_poll", max_instances=1, coalesce=True)
 
     # The brain trains after reflection (which may add facts the scout reads) and learns
     # whenever the user has been quiet for a while.

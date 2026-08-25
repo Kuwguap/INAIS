@@ -85,6 +85,32 @@ async def check_embeddings() -> str:
         return f"{BAD} embeddings {cfg.embedding_model} — {_short(e)}"
 
 
+async def check_guapbooks() -> str:
+    """The ebook factory: guap_* tables in the DB, and the storage key that delivery needs."""
+    cfg = settings()
+    if not cfg.guapbooks_enabled:
+        return f"{OFF} guap books — set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY"
+    p = db.pool()
+    if p is None:
+        return f"{BAD} guap books — database offline"
+    try:
+        n = await p.fetchval(
+            "select count(*) from information_schema.tables"
+            " where table_schema = 'public' and table_name = 'guap_jobs'")
+        if not n:
+            return f"{BAD} guap books — migration 027 not applied (guap_jobs missing)"
+        from inais.integrations import guapbooks
+        try:
+            await guapbooks.fetch_asset("probe/does-not-exist")
+        except guapbooks.GuapBooksError as e:
+            if "missing in storage" not in str(e):
+                return f"{BAD} guap books — {e}"
+        queued = await p.fetchval("select count(*) from guap_jobs where status = 'queued'")
+        return f"{OK} guap books — tables + storage ok, {queued} queued"
+    except Exception as e:
+        return f"{BAD} guap books — {_short(e)}"
+
+
 async def run() -> str:
     """Every check, in the order a turn would hit them."""
     lines = ["🩺 Diagnostics", ""]
@@ -100,6 +126,8 @@ async def run() -> str:
     except Exception:
         log.exception("search probe failed")
         lines.append("❌ search probe failed — check the logs")
+
+    lines.append(await check_guapbooks())
 
     cfg = settings()
     lines.append("")

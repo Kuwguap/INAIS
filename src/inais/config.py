@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     ogoffcl_base_url: str = ""      # website root, e.g. https://ogoffcl.store (bot calls {url}/api/bot)
     ogoffcl_api_key: str = ""       # shared secret: bot ↔ website, both directions
 
+    # --- Guap Books (ebook factory — tables live in this bot's own Supabase project) ---
+    supabase_url: str = ""             # project API url, e.g. https://<ref>.supabase.co
+    supabase_service_role_key: str = ""  # service_role key: private-bucket asset downloads
+    guapbooks_poll_minutes: int = 2    # how often finished books are delivered to Telegram
+
     # --- Sub-agent swarm (M10) ---
     subagent_model: str = "claude-haiku-4-5"
     max_parallel_subagents: int = 4
@@ -175,6 +180,11 @@ class Settings(BaseSettings):
     @property
     def ogoffcl_enabled(self) -> bool:
         return bool(self.ogoffcl_base_url and self.ogoffcl_api_key)
+
+    @property
+    def guapbooks_enabled(self) -> bool:
+        """Queueing needs only the DB; delivery also needs storage access, so both gate it."""
+        return bool(self.supabase_db_url and self.supabase_url and self.supabase_service_role_key)
 
     @property
     def github_repo_list(self) -> list[str]:

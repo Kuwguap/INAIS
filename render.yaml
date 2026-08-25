@@ -126,6 +126,14 @@ services:
       - key: OGOFFCL_API_KEY
         sync: false                   # shared bot↔site secret (also set as BOT_SECRET on Vercel)
 
+      # ---------------- Guap Books (ebook factory) ----------------
+      - key: SUPABASE_URL
+        sync: false                   # this project's API url, https://<ref>.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false                   # service_role key — downloads finished books from storage
+      - key: GUAPBOOKS_POLL_MINUTES
+        value: "2"
+
       # ---------------- sub-agent swarm ----------------
       - key: MAX_PARALLEL_SUBAGENTS
         value: "4"                    # concurrency cap; 512 MB fits ~4 comfortably

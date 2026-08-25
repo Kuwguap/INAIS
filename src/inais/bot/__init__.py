@@ -8,7 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from inais.bot.middleware import DedupeMiddleware, OwnerOnlyMiddleware
 from inais.bot.middleware_commands import CommandEscapesStateMiddleware
 from inais.bot.routers import (
-    alarms, approvals, capture, chat, commands, drills, facts, learning, menu,
+    alarms, approvals, books, capture, chat, commands, drills, facts, learning, menu,
     store, study, tracking, vision, voice,
 )
 from inais.bot.routers import persona as persona_router  # aliased: inais.persona is a module
@@ -30,6 +30,7 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(facts.router)
     dp.include_router(tracking.router)
     dp.include_router(store.router)    # store admin: FSM (discount create) + callbacks
+    dp.include_router(books.router)    # guap books factory: /ebook /ebookideas /books
     dp.include_router(commands.router)
     dp.include_router(persona_router.router)
     dp.include_router(menu.router)
