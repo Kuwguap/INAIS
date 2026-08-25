@@ -282,3 +282,32 @@ def product_kb(product: dict) -> InlineKeyboardMarkup:
                               callback_data=f"prod:vis:{pid}")],
         [InlineKeyboardButton(text="◀ Products", callback_data="prod:list")],
     ])
+
+
+# ---------- Guap Books — prefixes: gbk: (book), gbdl: (download), gblib (library) ----------
+
+def books_library_kb(books: list[dict]) -> InlineKeyboardMarkup:
+    rows = []
+    for b in books[:10]:
+        pages = f" · {b['pages']}p" if b.get("pages") else ""
+        rows.append([InlineKeyboardButton(
+            text=f"📗 {str(b.get('title', '?'))[:40]}{pages}"[:60],
+            callback_data=f"gbk:{b['id']}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows or [[
+        InlineKeyboardButton(text="↻ Refresh", callback_data="gblib")]])
+
+
+def book_actions_kb(book: dict) -> InlineKeyboardMarkup:
+    bid = book["id"]
+    rows = []
+    top = []
+    if book.get("pdf_path"):
+        top.append(InlineKeyboardButton(text="📕 Download PDF", callback_data=f"gbdl:pdf:{bid}"))
+    if book.get("cover_path"):
+        top.append(InlineKeyboardButton(text="🖼 Cover", callback_data=f"gbdl:cover:{bid}"))
+    if top:
+        rows.append(top)
+    if book.get("flyer_path"):
+        rows.append([InlineKeyboardButton(text="🚀 Promo flyer", callback_data=f"gbdl:flyer:{bid}")])
+    rows.append([InlineKeyboardButton(text="◀ Library", callback_data="gblib")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

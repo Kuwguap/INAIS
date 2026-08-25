@@ -56,6 +56,9 @@ SECTIONS: dict[str, tuple[str, str, list[tuple[str, str]]]] = {
         ("🛒 Overview", "storeoverview"), ("📦 Orders", "storeorders"),
         ("⏳ Waitlist", "storewaitlist"), ("📈 Analytics", "storeanalytics"),
     ]),
+    "books": ("📚 Books", "📚 Guap Books", [
+        ("📖 Library", "booklibrary"), ("🏭 Factory", "bookfactory"),
+    ]),
     "system": ("⚙️ System", "⚙️ System", [
         ("📈 Status", "status"), ("🩺 Diagnostics", "diag"),
         ("🔍 Why last answer", "why"), ("⏸ Pause", "pause"),
@@ -174,6 +177,14 @@ async def _store_analytics() -> str:
     return ogoffcl.render_analytics(await ogoffcl.analytics(7))
 
 
+async def _book_factory() -> str:
+    from inais.integrations import guapbooks
+
+    if db.pool() is None:
+        return "The book factory needs the database — SUPABASE_DB_URL isn't working."
+    return guapbooks.render_overview(await guapbooks.overview())
+
+
 ACTIONS: dict[str, Callable[[], Awaitable[str]]] = {}
 
 
@@ -209,6 +220,7 @@ def _register_actions() -> None:
         "storeoverview": _store_overview,
         "storewaitlist": _store_waitlist,
         "storeanalytics": _store_analytics,
+        "bookfactory": _book_factory,
     })
 
 
@@ -254,6 +266,7 @@ CONVERSATIONAL = {
     "facts": "Send /facts — you can browse, correct and delete what I believe about you.",
     "why": "Send /why — I'll explain how I handled your last message.",
     "storeorders": "Send /orders — live orders with buttons to open details and change status.",
+    "booklibrary": "Send /library — browse your finished ebooks and download them right here.",
 }
 
 

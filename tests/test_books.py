@@ -134,3 +134,46 @@ def test_poll_ideas_job_sends_text(monkeypatch):
     delivered = _wire_factory(monkeypatch, job, bot)
     n = asyncio.run(books_watch.poll(bot))
     assert n == 1 and bot.calls == ["message"] and delivered == ["j2"]
+
+
+# ---------- library UI + downloads (added with the inline-button/download feature) ----------
+
+def test_render_library_empty_and_populated():
+    assert "empty" in guapbooks.render_library([])
+    assert "1 finished" in guapbooks.render_library([{"id": "x", "title": "T", "pages": 10}])
+
+
+def test_render_book_detail_shows_meta_and_gates_unready():
+    ready = guapbooks.render_book_detail(
+        {"title": "Money", "status": "ready", "pages": 20, "word_count": 5000, "pdf_path": "p"})
+    assert "Money" in ready and "20 pages" in ready and "5,000 words" in ready
+    unready = guapbooks.render_book_detail({"title": "WIP", "status": "designing"})
+    assert "production" in unready  # download gated until ready
+
+
+def test_library_keyboard_within_64_bytes():
+    from inais.bot import keyboards
+
+    UUID = "123e4567-e89b-12d3-a456-426614174000"
+    lib = keyboards.books_library_kb([{"id": UUID, "title": "Book", "pages": 12}])
+    act = keyboards.book_actions_kb(
+        {"id": UUID, "pdf_path": "p", "cover_path": "c", "flyer_path": "f"})
+    cds = [b.callback_data for kb in (lib, act) for row in kb.inline_keyboard for b in row]
+    assert "gblib" in cds
+    assert f"gbdl:pdf:{UUID}" in cds
+    assert all(len(c.encode()) <= 64 for c in cds)
+
+
+def test_book_actions_only_offers_files_that_exist():
+    from inais.bot import keyboards
+
+    kb = keyboards.book_actions_kb({"id": "x", "pdf_path": "p.pdf"})  # no cover/flyer
+    cds = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "gbdl:pdf:x" in cds
+    assert not any(c.startswith("gbdl:cover") or c.startswith("gbdl:flyer") for c in cds)
+
+
+def test_download_kind_maps_to_a_storage_column():
+    from inais.bot.routers.books import _ASSET_COLUMN
+
+    assert _ASSET_COLUMN == {"pdf": "pdf_path", "cover": "cover_path", "flyer": "flyer_path"}

@@ -36,7 +36,7 @@ Plan  — /tasks /brief /pomodoro /stats /weekly /contacts /commitments
 Brain — /learned /learn /curiosity /brain /train /facts /forget /mood /journal
 Dev   — /github
 Store — /store /orders /waitlist /analytics /discounts /lock /products
-Books — /ebook /ebookideas /books
+Books — /ebook /ebookideas /books /library
 System— /status /diag /why /pause /resume /persona /reflect /reset /menu"""
 
 

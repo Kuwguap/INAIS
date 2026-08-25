@@ -116,6 +116,15 @@ async def ready_undelivered(limit: int = 5) -> list[dict]:
     return out
 
 
+async def get_book(book_id: str) -> dict | None:
+    """One book with its storage paths — for the detail view and downloads."""
+    rows = await _pool().fetch(
+        "select id, title, subtitle, status, topic, audience, pages, word_count,"
+        "       skillshare_url, cover_path, pdf_path, flyer_path"
+        " from guap_books where id = $1 limit 1", book_id)
+    return dict(rows[0]) if rows else None
+
+
 async def list_books(status: str | None = None, limit: int = 10) -> list[dict]:
     if status:
         rows = await _pool().fetch(
@@ -214,4 +223,31 @@ def render_books(books: list[dict]) -> str:
         if b.get("skillshare_url"):
             bits.append("listed ✓")
         lines.append(f"• {b.get('title', '?')} ({', '.join(bits)})")
+    return "\n".join(lines)
+
+
+def render_library(books: list[dict]) -> str:
+    if not books:
+        return ("📚 Your library is empty — no finished books yet.\n"
+                "Start one with /ebook <topic>; I'll add it here when it's ready.")
+    return f"📚 Library — {len(books)} finished book(s)\nTap one to read the details and download."
+
+
+def render_book_detail(b: dict) -> str:
+    lines = [f"📗 {b.get('title', '?')}"]
+    if b.get("subtitle"):
+        lines.append(b["subtitle"])
+    lines.append("")
+    bits = [b.get("status", "?")]
+    if b.get("pages"):
+        bits.append(f"{b['pages']} pages")
+    if b.get("word_count"):
+        bits.append(f"{b['word_count']:,} words")
+    lines.append(" · ".join(bits))
+    if b.get("skillshare_url"):
+        lines.append(f"🛒 {b['skillshare_url']}")
+    if b.get("status") != "ready":
+        lines.append("\n(Still in production — download unlocks when it's ready.)")
+    elif not b.get("pdf_path"):
+        lines.append("\n(No PDF on file for this one yet.)")
     return "\n".join(lines)
