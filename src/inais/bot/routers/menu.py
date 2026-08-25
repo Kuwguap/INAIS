@@ -59,6 +59,10 @@ SECTIONS: dict[str, tuple[str, str, list[tuple[str, str]]]] = {
     "books": ("📚 Books", "📚 Guap Books", [
         ("📖 Library", "booklibrary"), ("🏭 Factory", "bookfactory"),
     ]),
+    "memes": ("🎯 Memes", "🎯 Meme intelligence", [
+        ("📡 Scout", "memescout"), ("📒 Positions", "memepositions"),
+        ("🧪 Paper book", "memepaper"), ("📊 Stats", "memestatsview"),
+    ]),
     "system": ("⚙️ System", "⚙️ System", [
         ("📈 Status", "status"), ("🩺 Diagnostics", "diag"),
         ("🔍 Why last answer", "why"), ("⏸ Pause", "pause"),
@@ -185,6 +189,62 @@ async def _book_factory() -> str:
     return guapbooks.render_overview(await guapbooks.overview())
 
 
+def _meme_guarded() -> str | None:
+    if not settings().meme_enabled:
+        return "Meme intelligence is off — set MEME_ENABLED=true to turn it on."
+    if db.pool() is None:
+        return "The meme feature needs the database — SUPABASE_DB_URL isn't working."
+    return None
+
+
+async def _meme_scout() -> str:
+    from inais.memes import store as meme_store
+
+    if (msg := _meme_guarded()) is not None:
+        return msg
+    s = await meme_store.scout_stats()
+    return (f"📡 Scout: {s.get('seen', 0)} tokens seen ({s.get('seen_today', 0)} today)"
+            f" · rejected {s.get('rejected', 0)} · signaled {s.get('signaled', 0)}\n"
+            "/memes for recent signals.")
+
+
+async def _meme_positions() -> str:
+    from inais.memes import store as meme_store
+
+    if (msg := _meme_guarded()) is not None:
+        return msg
+    positions = await meme_store.open_positions()
+    if not positions:
+        return "📒 No open meme positions."
+    lines = ["📒 Open positions (buttons via /positions)", ""]
+    for p in positions:
+        kind = "🧪" if p["kind"] == "paper" else "📒"
+        lines.append(f"{kind} {p['symbol']} · ${p['size_usd']:.0f} @ ${p['entry_price']:.10g}")
+    return "\n".join(lines)
+
+
+async def _meme_paper() -> str:
+    from inais.memes import store as meme_store
+
+    if (msg := _meme_guarded()) is not None:
+        return msg
+    r = await meme_store.paper_report()
+    return (f"🧪 Paper bankroll ${r.get('bankroll', 0):,.2f}"
+            f" · realized {float(r.get('realized') or 0):+,.2f}"
+            f" · {r.get('open', 0)} open")
+
+
+async def _meme_stats() -> str:
+    from inais.memes import learning as meme_learning
+    from inais.memes import store as meme_store
+
+    if (msg := _meme_guarded()) is not None:
+        return msg
+    return meme_learning.render_stats(await meme_store.stats(),
+                                      await meme_store.paper_report(),
+                                      await meme_learning.head_line())
+
+
 ACTIONS: dict[str, Callable[[], Awaitable[str]]] = {}
 
 
@@ -221,6 +281,10 @@ def _register_actions() -> None:
         "storewaitlist": _store_waitlist,
         "storeanalytics": _store_analytics,
         "bookfactory": _book_factory,
+        "memescout": _meme_scout,
+        "memepositions": _meme_positions,
+        "memepaper": _meme_paper,
+        "memestatsview": _meme_stats,
     })
 
 

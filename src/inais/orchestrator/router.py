@@ -14,7 +14,11 @@ log = logging.getLogger(__name__)
 AGENTS = ("finance", "email", "study", "planner")
 
 _FINANCE_HINTS = ("binance", "portfolio", "crypto", "btc", "eth", "usdt", "trade", "deposit",
-                  "withdraw", "balance", "pnl", "invest")
+                  "withdraw", "balance", "pnl", "invest",
+                  # meme intelligence — multi-char tokens only: bare "rug" would match
+                  # drug/rugby/shrug and "sol" would match solve/console (naive substring match)
+                  "solana", "meme coin", "memecoin", "pump.fun", "dexscreener",
+                  "rug pull", "rugcheck", "rugged")
 _EMAIL_HINTS = ("email", "mail", "inbox", "gmail", "reply to", "draft", "unread")
 _PLANNER_HINTS = ("task", "todo", "to-do", "remind", "reminder", "deadline", "schedule",
                   "calendar", "agenda", "plan my day", "plan my week", "due ")

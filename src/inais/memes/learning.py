@@ -113,6 +113,29 @@ async def reflect_patterns() -> int:
     return saved
 
 
+async def head_line() -> str:
+    """One line on the meme_signal head's state, for /memestats (nn.status query shapes)."""
+    from inais.brain import nn as _nn
+
+    p = db.pool()
+    if p is None:
+        return "meme_signal head: no database"
+    counts = await p.fetchrow(
+        "select count(*) as n, count(*) filter (where label > 0.5) as pos"
+        " from nn_examples where model_name = 'meme_signal'")
+    active = await p.fetchrow(
+        "select metrics from nn_models"
+        " where name = 'meme_signal' and active order by version desc limit 1")
+    if active is None:
+        return (f"meme_signal head: untrained — {counts['n']} examples"
+                f" ({counts['pos']} wins). Trains nightly once there's enough signal.")
+    raw = active["metrics"]
+    m = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+    auc = float(m.get("cv_auc", 0))
+    state = "steering (vetoes weak signals)" if auc >= _nn.MIN_USABLE_AUC else "observing only"
+    return f"meme_signal head: AUC {auc:.2f} on {counts['n']} examples — {state}"
+
+
 def render_stats(stats: dict, paper: dict, nn_line: str) -> str:
     total_settled = (stats.get("wins", 0) or 0) + (stats.get("losses", 0) or 0)
     hit = f"{stats.get('wins', 0) / total_settled:.0%}" if total_settled else "—"
