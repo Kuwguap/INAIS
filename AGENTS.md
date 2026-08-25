@@ -61,7 +61,10 @@ ruff check src tests scripts
   (`settle.py`, never on a missing price) → learning (`learning.py`: outcomes train the
   `meme_signal` NN head from STORED `features.py` vectors — constant length forever, bump
   `MEME_FEATURES_VERSION` + wipe the head's nn_examples to change). Deep research runs in
-  Claude Code via the `meme-scan` skill over the `meme_jobs` queue (`scripts/meme_jobs.py`).
+  Claude Code via the skill suite over the `meme_jobs` queue (`scripts/meme_jobs.py`):
+  `meme-studio` orchestrates; `meme-scout` (kind scout) hunts ahead, `meme-predict`
+  (deep_dive) does the forensic read, `meme-learn` (learn) post-mortems settled trades,
+  `meme-trends` (regime) tracks the regime + fake-coin fingerprints + dip behaviour.
 - `src/inais/controls.py` — persisted runtime flags (the pause switch), cached for hot paths.
 - `src/inais/trace.py` — per-turn ring buffer (route, memory, tools, tokens, cost) behind /why.
 - `src/inais/journal.py` — voice journal + mood trending (scores are an ordering, not a

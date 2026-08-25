@@ -1,11 +1,13 @@
-"""CLI over the meme_jobs queue — the meme-scan Claude Code skill's database hands.
+"""CLI over the meme_jobs queue — the meme skill suite's database hands (meme-studio et al).
 
 Usage:
-  python scripts/meme_jobs.py claim --worker studio-1 [--kinds deep_dive regime]
+  python scripts/meme_jobs.py claim --worker studio-1 [--kinds deep_dive regime scout learn]
   python scripts/meme_jobs.py reclaim
   python scripts/meme_jobs.py progress <job_id> "reading holder data"
   python scripts/meme_jobs.py complete <job_id> --result-file result.json
   python scripts/meme_jobs.py fail <job_id> "error text"
+  python scripts/meme_jobs.py queue --kind deep_dive --payload '{"mint": "..."}' [--chat 123]
+  python scripts/meme_jobs.py outcomes [--days 14]
   python scripts/meme_jobs.py add-knowledge --topic "meme/..." --summary "..." [--detail "..."]
                               [--sources sources.json] [--no-embed]
 
@@ -98,6 +100,42 @@ async def cmd_fail(args) -> None:
         await conn.close()
 
 
+async def cmd_queue(args) -> None:
+    """Queue a follow-up job (e.g. the scout skill chaining deep dives on its finds)."""
+    payload = json.loads(args.payload or "{}")
+    conn = await _connect()
+    try:
+        row = await conn.fetchrow(
+            "insert into meme_jobs (kind, payload, mint, requested_via, requester_chat_id)"
+            " values ($1, $2::jsonb, $3, 'studio', $4) returning id",
+            args.kind, json.dumps(payload), payload.get("mint"), args.chat)
+        print(json.dumps({"job_id": str(row["id"])}))
+    finally:
+        await conn.close()
+
+
+async def cmd_outcomes(args) -> None:
+    """Settled signals + closed positions — the learn skill's raw material (read-only)."""
+    conn = await _connect()
+    try:
+        signals = await conn.fetch(
+            "select symbol, status, confidence, nn_score, suppressed, thesis,"
+            "       entry_price, settle_price, created_at, settled_at"
+            " from meme_signals where status <> 'open'"
+            "   and settled_at > now() - make_interval(days => $1)"
+            " order by settled_at desc limit 100", args.days)
+        positions = await conn.fetch(
+            "select symbol, kind, close_reason, entry_price, exit_price, pnl_pct, pnl_usd,"
+            "       size_usd, opened_at, closed_at"
+            " from meme_positions where status = 'closed'"
+            "   and closed_at > now() - make_interval(days => $1)"
+            " order by closed_at desc limit 100", args.days)
+        print(json.dumps({"signals": [dict(r) for r in signals],
+                          "positions": [dict(r) for r in positions]}, default=str))
+    finally:
+        await conn.close()
+
+
 async def cmd_add_knowledge(args) -> None:
     sources = []
     if args.sources:
@@ -149,6 +187,17 @@ def main() -> None:
     f.add_argument("job_id")
     f.add_argument("error")
     f.set_defaults(fn=cmd_fail)
+
+    q = sub.add_parser("queue")
+    q.add_argument("--kind", required=True,
+                   choices=["deep_dive", "regime", "scout", "learn"])
+    q.add_argument("--payload", default="{}")
+    q.add_argument("--chat", type=int, default=None)
+    q.set_defaults(fn=cmd_queue)
+
+    o = sub.add_parser("outcomes")
+    o.add_argument("--days", type=int, default=14)
+    o.set_defaults(fn=cmd_outcomes)
 
     k = sub.add_parser("add-knowledge")
     k.add_argument("--topic", required=True)

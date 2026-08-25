@@ -14,7 +14,7 @@ from inais import db
 
 log = logging.getLogger(__name__)
 
-KINDS = ("deep_dive", "regime")
+KINDS = ("deep_dive", "regime", "scout", "learn")
 
 
 class MemeJobsError(Exception):

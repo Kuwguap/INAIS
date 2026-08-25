@@ -120,20 +120,30 @@ async def cmd_memestats(message: Message) -> None:
 
 @router.message(Command("memescan"))
 async def cmd_memescan(message: Message) -> None:
+    """/memescan <mint> — deep dive · /memescan trends — regime review ·
+    /memescan scout — hunt ahead · /memescan learn — trade post-mortem."""
     if not await _guard(message):
         return
-    mint = (message.text or "").partition(" ")[2].strip()
-    if not links.valid_address(mint):
-        await message.answer("Give me a token mint: /memescan <base58 mint address>")
+    arg = (message.text or "").partition(" ")[2].strip()
+    word_kinds = {"trends": "regime", "regime": "regime", "scout": "scout", "learn": "learn"}
+    if arg.lower() in word_kinds:
+        kind, payload = word_kinds[arg.lower()], {}
+        what = {"regime": "a market trends/regime review",
+                "scout": "a scout-ahead hunt for fresh candidates",
+                "learn": "a post-mortem over your settled trades"}[kind]
+    elif links.valid_address(arg):
+        kind, payload, what = "deep_dive", {"mint": arg}, "a deep dive"
+    else:
+        await message.answer("Usage: /memescan <base58 mint>  ·  or one of: trends, scout, learn")
         return
     try:
-        await memejobs.queue_job("deep_dive", {"mint": mint}, message.chat.id)
+        await memejobs.queue_job(kind, payload, message.chat.id)
     except memejobs.MemeJobsError as e:
         await message.answer(f"⚠️ {e}")
         return
     jobs = await memejobs.jobs_for_chat(message.chat.id, limit=5)
     await message.answer(
-        "🔬 Queued a deep dive — the research studio picks it up next time it runs, and the "
+        f"🔬 Queued {what} — the meme-studio skill picks it up next time it runs, and the "
         "report lands here.\n\n" + memejobs.render_jobs(jobs))
 
 

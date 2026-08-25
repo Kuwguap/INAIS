@@ -87,7 +87,7 @@ create index if not exists meme_positions_open_idx on meme_positions (id) where 
 -- Deep-research job queue, serviced by the meme-scan Claude Code skill (guap_jobs clone).
 create table if not exists meme_jobs (
     id            uuid primary key default gen_random_uuid(),
-    kind          text        not null check (kind in ('deep_dive','regime')),
+    kind          text        not null check (kind in ('deep_dive','regime','scout','learn')),
     status        text        not null default 'queued'
                   check (status in ('queued','claimed','running','done','failed','cancelled')),
     token_id      bigint      references meme_tokens (id),
