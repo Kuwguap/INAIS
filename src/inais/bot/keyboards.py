@@ -311,3 +311,58 @@ def book_actions_kb(book: dict) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="🚀 Promo flyer", callback_data=f"gbdl:flyer:{bid}")])
     rows.append([InlineKeyboardButton(text="◀ Library", callback_data="gblib")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ---------- Memes — prefixes: mmin: mmpa: mmsk: mmcl: (URL buttons cost no callback budget) ----------
+
+def _meme_venue_row(pair_address: str, mint: str) -> list[InlineKeyboardButton]:
+    """Chart + wallet deep links. Builders validate base58 and return None for anything a
+    scraped string could have smuggled in — a None simply drops that button."""
+    from inais.memes import links
+
+    row = []
+    for label, url in (("📈 Chart", links.chart_url(pair_address)),
+                       ("🟢 Jupiter", links.jupiter_url(mint)),
+                       ("⚡ Photon", links.photon_url(pair_address))):
+        if url:
+            row.append(InlineKeyboardButton(text=label, url=url))
+    return row
+
+
+def meme_signal_kb(signal_id: int, pair_address: str, mint: str) -> InlineKeyboardMarkup:
+    rows = []
+    venue = _meme_venue_row(pair_address, mint)
+    if venue:
+        rows.append(venue)
+    rows.append([
+        InlineKeyboardButton(text="📒 I'm in", callback_data=f"mmin:{signal_id}"),
+        InlineKeyboardButton(text="🧪 Paper", callback_data=f"mmpa:{signal_id}"),
+        InlineKeyboardButton(text="⏭ Skip", callback_data=f"mmsk:{signal_id}"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def meme_position_kb(position_id: int, pair_address: str, mint: str) -> InlineKeyboardMarkup:
+    rows = []
+    venue = _meme_venue_row(pair_address, mint)
+    if venue:
+        rows.append(venue)
+    rows.append([InlineKeyboardButton(text="✅ Close (log exit)",
+                                      callback_data=f"mmcl:{position_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def meme_positions_list_kb(positions: list[dict]) -> InlineKeyboardMarkup | None:
+    if not positions:
+        return None
+    rows = []
+    for p in positions[:10]:
+        kind = "🧪" if p.get("kind") == "paper" else "📒"
+        pnl = ""
+        entry, last = p.get("entry_price"), p.get("last_price")
+        if entry and last:
+            pnl = f" {((last - entry) / entry * 100):+.0f}%"
+        rows.append([InlineKeyboardButton(
+            text=f"{kind} {str(p.get('symbol', '?'))[:16]}{pnl} · close"[:60],
+            callback_data=f"mmcl:{p['id']}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

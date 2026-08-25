@@ -30,7 +30,7 @@ from inais.config import settings
 
 log = logging.getLogger(__name__)
 
-MODEL_NAMES = ("interest", "email_importance", "engagement", "complexity")
+MODEL_NAMES = ("interest", "email_importance", "engagement", "complexity", "meme_signal")
 DEFAULT_INPUT_DIM = 1536
 CONTEXT_DIMS = 5   # time-of-day + weekday features, for heads where the clock matters
 

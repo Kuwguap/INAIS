@@ -166,6 +166,26 @@ def setup(bot) -> AsyncIOScheduler:
     async def proactive_check() -> None:
         await proactive.scheduled(bot)
 
+    async def meme_scout_tick() -> None:
+        from inais.jobs import meme_watch
+
+        await meme_watch.scout_tick(bot)
+
+    async def meme_watch_tick() -> None:
+        from inais.jobs import meme_watch
+
+        await meme_watch.watch_tick(bot)
+
+    async def meme_research_poll() -> None:
+        from inais.jobs import meme_watch
+
+        await meme_watch.research_poll(bot)
+
+    async def meme_reflect() -> None:
+        from inais.jobs import meme_watch
+
+        await meme_watch.reflect(bot)
+
     async def weekly_review() -> None:
         try:
             text = await weekly.build_weekly_review()
@@ -220,6 +240,9 @@ def setup(bot) -> AsyncIOScheduler:
             from inais.brain import signals as brain_signals
 
             await brain_signals.harvest_engagement()
+            from inais.memes import learning as meme_learning
+
+            await meme_learning.harvest_meme_outcomes()
             log.info("nightly training: %s", await nn.train_all())
             from inais.orchestrator.router import AGENTS
 
@@ -256,6 +279,14 @@ def setup(bot) -> AsyncIOScheduler:
     if cfg.guapbooks_enabled:
         scheduler.add_job(books_poll, "interval", minutes=cfg.guapbooks_poll_minutes,
                           id="books_poll", max_instances=1, coalesce=True)
+    if cfg.meme_enabled:
+        scheduler.add_job(meme_scout_tick, "interval", minutes=cfg.meme_scout_minutes,
+                          id="meme_scout", max_instances=1, coalesce=True)
+        scheduler.add_job(meme_watch_tick, "interval", seconds=60,
+                          id="meme_watch", max_instances=1, coalesce=True)
+        scheduler.add_job(meme_research_poll, "interval", minutes=2,
+                          id="meme_research_poll", max_instances=1, coalesce=True)
+        scheduler.add_job(meme_reflect, "cron", hour=4, minute=0, id="meme_reflect")
 
     # The brain trains after reflection (which may add facts the scout reads) and learns
     # whenever the user has been quiet for a while.
