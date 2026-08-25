@@ -24,7 +24,8 @@ PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-opus-5": (5.0, 25.0),
     "gpt-5-mini": (0.25, 2.0),
     "gpt-5-nano": (0.20, 1.25),
-    "gpt-5": (1.25, 10.0),        # generic gpt-5*; keep AFTER the mini/nano entries
+    "gpt-5.6": (1.25, 10.0),      # all gpt-5.6-* (sol/terra/luna); estimate — update when priced
+    "gpt-5": (1.25, 10.0),        # generic gpt-5*; keep AFTER the mini/nano/5.6 entries
     "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4.1": (2.0, 8.0),
     "gpt-4o-mini": (0.15, 0.60),

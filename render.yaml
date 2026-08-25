@@ -48,12 +48,12 @@ services:
       - key: SUPABASE_DB_URL
         sync: false                   # Supabase → Connect → session pooler URI (port 5432)
       - key: BRAIN_PROVIDER
-        value: auto                   # auto | openai | anthropic. Set "openai" to run the
-                                      # whole brain on OpenAI (no Claude access needed).
+        value: openai                 # auto | openai | anthropic. openai = run the whole
+                                      # brain on OpenAI (GPT-5.6); set "auto"/"anthropic" for Claude.
       - key: AGENT_MODEL
         value: claude-sonnet-5        # tool-heavy turns, when the brain is Anthropic
       - key: OPENAI_AGENT_MODEL
-        value: gpt-5                  # tool-heavy turns, when the brain is OpenAI
+        value: gpt-5.6                # tool-heavy turns, when the brain is OpenAI (alias → -sol)
       - key: OPENAI_REASONING_EFFORT
         value: low                    # minimal|low|medium|high. GPT-5's thinking time is
                                       # most of a turn's latency; low keeps chat snappy.

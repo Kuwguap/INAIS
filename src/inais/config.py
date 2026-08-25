@@ -25,9 +25,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     supabase_db_url: str = ""
-    brain_provider: str = "auto"    # auto | anthropic | openai — which brain runs the agent
+    brain_provider: str = "openai"  # auto | anthropic | openai — which brain runs the agent
     agent_model: str = "claude-sonnet-5"
-    openai_agent_model: str = "gpt-5"   # used when the brain runs on OpenAI
+    openai_agent_model: str = "gpt-5.6"   # used when the brain runs on OpenAI (alias → -sol)
     # GPT-5/o-series think before answering, and that thinking is most of the wall clock.
     # "low" keeps a chat assistant responsive; raise it only if answers are visibly shallow.
     openai_reasoning_effort: str = "low"   # minimal | low | medium | high

@@ -246,8 +246,11 @@ def test_webhook_path_falls_back_to_a_hex_digest():
 # ---------- brain provider switch ----------
 
 def test_provider_auto_prefers_anthropic_then_falls_back():
-    assert _settings(anthropic_api_key="k", openai_api_key="k").agent_provider == "anthropic"
-    assert _settings(anthropic_api_key="", openai_api_key="k").agent_provider == "openai"
+    # default is now "openai"; this asserts the AUTO logic specifically
+    assert _settings(brain_provider="auto", anthropic_api_key="k",
+                     openai_api_key="k").agent_provider == "anthropic"
+    assert _settings(brain_provider="auto", anthropic_api_key="",
+                     openai_api_key="k").agent_provider == "openai"
 
 
 def test_provider_can_be_forced_to_openai():
