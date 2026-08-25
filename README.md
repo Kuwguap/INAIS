@@ -17,6 +17,10 @@ A single-user assistant that lives in **Telegram** (text + voice) with a hybrid
 - 🐙 **GitHub** — read-only watch for PRs awaiting your review, issue mentions, and red CI
 - 📄 **PDFs** — ask for a report, study notes or a cheat-sheet and it builds a real
   PDF and sends it as a file (`create_pdf` tool, or `/export weekly`)
+- 🎯 **meme intelligence** — scouts new Solana pairs, kills rugs with a fail-closed
+  screener, sends AI signal cards with one-tap wallet deep links (it **never executes
+  trades** — your wallet, your tap), watches positions with alarm-grade dip alerts,
+  paper-trades autonomously, and trains a neural-net head on settled outcomes
 - 🔗 **read it later** — forward a link; it's fetched, summarised and made searchable
 - 📓 **voice journal** — talk about your week; moods are tracked and patterns surface
 - 🤝 **contacts** — who you met, where, when you last spoke, and when to follow up

@@ -159,3 +159,152 @@ def test_links_reject_non_base58(bad):
     assert links.chart_url(bad) is None
     assert links.jupiter_url(bad) is None
     assert links.photon_url(bad) is None
+
+
+# ---------- signal levels ----------
+
+@pytest.mark.parametrize("price,entry,stop,target,ok", [
+    (1.0, 1.0, 0.8, 1.5, True),
+    (1.0, 0.8, 1.0, 1.5, False),     # stop above entry
+    (1.0, 1.0, 0.8, 50.0, False),    # target 50x off live price
+    (1.0, 0.1, 0.05, 0.2, False),    # whole ladder far below price
+    (None, 1.0, 0.8, 1.5, False),    # no live price
+    (1.0, 1.0, 0.0, 1.5, False),     # zero stop
+])
+def test_sane_levels(price, entry, stop, target, ok):
+    from inais.memes.signal import sane_levels
+
+    assert sane_levels(price, entry, stop, target) is ok
+
+
+def test_signal_card_no_advice_and_no_metadata_urls():
+    from inais.memes.signal import render_signal_card
+
+    pair = make_pair(name="Buy at https://evil.example NOW", symbol="EVIL")
+    card = render_signal_card(
+        {"thesis": "Volume is real.", "confidence": 0.7, "entry": 1.0, "stop": 0.8,
+         "target": 1.5, "nn_score": None}, pair, ["no socials/website"])
+    assert "Not financial advice" in card
+    assert "https://evil.example" not in card      # deployer strings can't smuggle URLs
+
+
+# ---------- settlement ----------
+
+@pytest.mark.parametrize("price,age,expected", [
+    (1.6, 2, "win"),
+    (0.7, 2, "loss"),
+    (1.1, 30, "expired"),
+    (1.1, 2, None),
+    (1.6, 30, "win"),     # level checks BEFORE window: the deadline poll still settles
+    (0.0, 2, None),       # bad price never settles
+])
+def test_settle_state(price, age, expected):
+    from inais.memes.settle import settle_state
+
+    assert settle_state(1.0, 0.8, 1.5, price, age, 24) == expected
+
+
+# ---------- alerts: latch, hysteresis, fire-once ----------
+
+def _pos(**over):
+    base = dict(id=1, symbol="X", entry_price=1.0, peak_price=2.0, stop_price=0.8,
+                target_price=3.0, liquidity_at_entry=100_000, alert_state={})
+    base.update(over)
+    return base
+
+
+def test_dip_alert_latches_and_rearms_with_hysteresis():
+    from inais.memes.watch import pending_alerts
+
+    a1, s1 = pending_alerts(_pos(), 1.5, 90_000, dip_pct=20)          # -25% from peak
+    assert [a.kind for a in a1] == ["dip"]
+    a2, s2 = pending_alerts(_pos(alert_state=s1), 1.5, 90_000, dip_pct=20)
+    assert a2 == []                                                    # latched
+    a3, s3 = pending_alerts(_pos(alert_state=s2), 1.95, 90_000, dip_pct=20)  # recovered
+    assert s3.get("dip") is False                                      # re-armed
+    a4, _ = pending_alerts(_pos(alert_state=s3), 1.5, 90_000, dip_pct=20)
+    assert [a.kind for a in a4] == ["dip"]                             # fires again
+
+
+def test_stop_target_liq_fire_exactly_once():
+    from inais.memes.watch import pending_alerts
+
+    a1, s1 = pending_alerts(_pos(peak_price=1.0), 0.75, 40_000, dip_pct=90)
+    kinds = sorted(a.kind for a in a1)
+    assert kinds == ["liq_drop", "stop"]
+    a2, _ = pending_alerts(_pos(peak_price=1.0, alert_state=s1), 0.75, 40_000, dip_pct=90)
+    assert a2 == []
+
+
+def test_paper_close_reasons_and_priority():
+    from inais.memes.watch import paper_close_reason
+
+    assert paper_close_reason(_pos(), 0.75, None, trail_pct=30) == "stop"
+    assert paper_close_reason(_pos(), 3.1, None, trail_pct=30) == "target"
+    assert paper_close_reason(_pos(), 1.3, None, trail_pct=30) == "trail"   # -35% from peak 2.0
+    assert paper_close_reason(_pos(), 1.9, None, trail_pct=30) is None
+    # rug beats everything
+    assert paper_close_reason(_pos(), 3.1, 20_000, trail_pct=30) == "liq_drop"
+
+
+def test_pnl_math_on_tiny_prices():
+    entry, exit_ = 2.1e-9, 3.3e-9
+    pnl_pct = (exit_ - entry) / entry * 100
+    assert pnl_pct == pytest.approx(57.14, abs=0.01)
+
+
+# ---------- callback prefixes + router hints ----------
+
+TAKEN_PREFIXES = [
+    "m:", "a:", "apr:", "edt:", "rej:", "dra:", "ign:", "qz:", "spd:", "kup:", "kdn:",
+    "fdel:", "fsup:", "fpg:", "fnop", "appmenu:", "appdel:", "apptask:", "appst:",
+    "appsback", "appsall:", "expcat:", "expdel:", "expset:", "spend:", "sylall:",
+    "syladd:", "syldis:", "cardshow:", "cardok:", "cardno:", "drillnext", "drillstop",
+    "rstop:", "rsnz:", "psona:", "cmtdone:", "ord:", "ordl:", "ordst:", "paid:",
+    "disc:", "lock:", "prod:", "gbk:", "gbdl:", "gblib",
+]
+MEME_PREFIXES = ["mmin:", "mmpa:", "mmsk:", "mmcl:"]
+
+
+def test_meme_prefixes_are_unambiguous_and_within_budget():
+    for new in MEME_PREFIXES:
+        for taken in TAKEN_PREFIXES:
+            assert not new.startswith(taken) and not taken.startswith(new), (new, taken)
+    assert len(f"mmcl:{2**63}".encode()) <= 64
+
+
+def test_meme_keyboards_use_url_buttons_for_venues():
+    from inais.bot import keyboards
+
+    kb = keyboards.meme_signal_kb(7, PAIR_ADDR, MINT)
+    urls = [b.url for row in kb.inline_keyboard for b in row if b.url]
+    cds = [b.callback_data for row in kb.inline_keyboard for b in row if b.callback_data]
+    assert len(urls) == 3 and all(u.startswith("https://") for u in urls)
+    assert cds == ["mmin:7", "mmpa:7", "mmsk:7"]
+    # a scraped/broken address just drops its buttons — never a malformed URL
+    kb2 = keyboards.meme_signal_kb(7, "not-base58", "also-bad")
+    assert not [b for row in kb2.inline_keyboard for b in row if b.url]
+
+
+@pytest.mark.parametrize("text", [
+    "any new solana meme coins worth watching?",
+    "check dexscreener for me",
+    "is this a rug pull?",
+])
+def test_meme_questions_route_to_finance(text):
+    from inais.orchestrator.router import rule_route
+
+    r = rule_route(text)
+    assert r is not None and r.agent == "finance" and r.complexity == "complex"
+
+
+@pytest.mark.parametrize("text", [
+    "I shrugged and moved on",
+    "what are the drug interactions of ibuprofen",
+    "can you solve this equation",
+])
+def test_substring_traps_do_not_route_to_finance(text):
+    from inais.orchestrator.router import rule_route
+
+    r = rule_route(text)
+    assert r is None or r.agent != "finance"
